@@ -1,9 +1,13 @@
 use std::time::Duration;
 
-use bevy::{
-    image::ImageLoaderSettings, prelude::*,
-    time::common_conditions::on_timer,
-};
+use bevy::{image::ImageLoaderSettings, prelude::*, time::common_conditions::on_timer};
+
+mod ml;
+use burn::backend::rocm::{Rocm, RocmDevice};
+use ml::FlappyBirdModel;
+use ml::FlappyBirdModelConfig;
+
+use crate::ml::GameStateFeatures;
 
 pub const CANVAS_SIZE: Vec2 = Vec2::new(480., 270.);
 pub const PLAYER_SIZE: f32 = 25.0;
@@ -20,13 +24,37 @@ impl Plugin for PipePlugin {
             (
                 despawn_pipes,
                 shift_pipes_to_the_left,
-                spawn_pipes.run_if(on_timer(
-                    Duration::from_millis(1000),
-                )),
+                spawn_pipes.run_if(on_timer(Duration::from_millis(1000))),
             ),
         );
     }
 }
+
+pub struct BrainPlugin;
+
+impl Plugin for BrainPlugin {
+    fn build(&self, app: &mut App) {
+        let device = RocmDevice::default();
+        let bird_brain = BirdBrain {
+            model: FlappyBirdModelConfig {
+                hidden_size1: 8,
+                hidden_size2: 4,
+            }
+            .init(&device),
+        };
+
+        app.insert_resource(bird_brain);
+        app.add_systems(FixedUpdate, (think,));
+    }
+}
+
+pub struct BirdBrain {
+    model: FlappyBirdModel<Rocm>,
+}
+
+unsafe impl Sync for BirdBrain {}
+
+impl Resource for BirdBrain {}
 
 #[derive(Component)]
 pub struct Pipe;
@@ -40,36 +68,23 @@ pub struct PipeBottom;
 #[derive(Component)]
 pub struct PointsGate;
 
-fn spawn_pipes(
-    mut commands: Commands,
-    asset_server: Res<AssetServer>,
-    time: Res<Time>,
-) {
-    let image = asset_server.load_with_settings(
-        "pipe.png",
-        |settings: &mut ImageLoaderSettings| {
+fn spawn_pipes(mut commands: Commands, asset_server: Res<AssetServer>, time: Res<Time>) {
+    let image =
+        asset_server.load_with_settings("pipe.png", |settings: &mut ImageLoaderSettings| {
             settings
                 .sampler
                 .get_or_init_descriptor()
-                .set_filter(
-                    bevy::image::ImageFilterMode::Nearest,
-                );
-        },
-    );
-
-    let image_mode =
-        SpriteImageMode::Sliced(TextureSlicer {
-            border: BorderRect::axes(8., 19.),
-            center_scale_mode: SliceScaleMode::Stretch,
-            ..default()
+                .set_filter(bevy::image::ImageFilterMode::Nearest);
         });
 
-    let transform =
-        Transform::from_xyz(CANVAS_SIZE.x / 2., 0.0, 1.0);
-    let gap_y_position = (time.elapsed_secs() * 4.2309875)
-        .sin()
-        * CANVAS_SIZE.y
-        / 4.;
+    let image_mode = SpriteImageMode::Sliced(TextureSlicer {
+        border: BorderRect::axes(8., 19.),
+        center_scale_mode: SliceScaleMode::Stretch,
+        ..default()
+    });
+
+    let transform = Transform::from_xyz(CANVAS_SIZE.x / 2., 0.0, 1.0);
+    let gap_y_position = (time.elapsed_secs() * 4.2309875).sin() * CANVAS_SIZE.y / 4.;
     let pipe_offset = PIPE_SIZE.y / 2.0 + GAP_SIZE / 2.0;
 
     commands.spawn((
@@ -84,27 +99,17 @@ fn spawn_pipes(
                     image_mode: image_mode.clone(),
                     ..default()
                 },
-                Transform::from_xyz(
-                    0.0,
-                    pipe_offset + gap_y_position,
-                    1.0,
-                ),
+                Transform::from_xyz(0.0, pipe_offset + gap_y_position, 1.0,),
                 PipeTop
             ),
             (
                 Visibility::Hidden,
                 Sprite {
                     color: Color::WHITE,
-                    custom_size: Some(Vec2::new(
-                        10.0, GAP_SIZE,
-                    )),
+                    custom_size: Some(Vec2::new(10.0, GAP_SIZE,)),
                     ..default()
                 },
-                Transform::from_xyz(
-                    0.0,
-                    gap_y_position,
-                    1.0,
-                ),
+                Transform::from_xyz(0.0, gap_y_position, 1.0,),
                 PointsGate,
             ),
             (
@@ -114,36 +119,37 @@ fn spawn_pipes(
                     image_mode,
                     ..default()
                 },
-                Transform::from_xyz(
-                    0.0,
-                    -pipe_offset + gap_y_position,
-                    1.0,
-                ),
+                Transform::from_xyz(0.0, -pipe_offset + gap_y_position, 1.0,),
                 PipeBottom,
             )
         ],
     ));
 }
 
-pub fn shift_pipes_to_the_left(
-    mut pipes: Query<&mut Transform, With<Pipe>>,
-    time: Res<Time>,
-) {
+pub fn shift_pipes_to_the_left(mut pipes: Query<&mut Transform, With<Pipe>>, time: Res<Time>) {
     for mut pipe in &mut pipes {
-        pipe.translation.x -=
-            PIPE_SPEED * time.delta_secs();
+        pipe.translation.x -= PIPE_SPEED * time.delta_secs();
     }
 }
 
-fn despawn_pipes(
-    mut commands: Commands,
-    pipes: Query<(Entity, &Transform), With<Pipe>>,
-) {
+fn despawn_pipes(mut commands: Commands, pipes: Query<(Entity, &Transform), With<Pipe>>) {
     for (entity, transform) in pipes.iter() {
-        if transform.translation.x
-            < -(CANVAS_SIZE.x / 2.0 + PIPE_SIZE.x)
-        {
+        if transform.translation.x < -(CANVAS_SIZE.x / 2.0 + PIPE_SIZE.x) {
             commands.entity(entity).despawn();
         }
     }
+}
+//what will you have after 500 years ?
+fn think(mut model: ResMut<BirdBrain>) {
+    //collect GameState
+    let state = GameStateFeatures {
+        bird_y: 0.0,
+        bird_velocity: 0.0,
+        next_pipe_top_y: 0.0,
+        next_pipe_bottom_y: 0.0,
+        next_pipe_distance: 0.0,
+    };
+    //do the actual thinking
+    let device = RocmDevice::default();
+    model.model.forward(state.to_tensor(&device));
 }
