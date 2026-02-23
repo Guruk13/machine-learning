@@ -25,6 +25,7 @@ fn main() -> AppExit {
         .add_plugins(DefaultPlugins)
         .add_plugins((
             PipePlugin,
+            BrainPlugin,
             Material2dPlugin::<BackgroundMaterial>::default(
             ),
         ))
@@ -32,7 +33,7 @@ fn main() -> AppExit {
         .add_systems(
             FixedUpdate,
             (
-                gravity,
+                //gravity,
                 check_in_bounds,
                 check_collisions,
             )

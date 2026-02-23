@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use bevy::{image::ImageLoaderSettings, prelude::*, time::common_conditions::on_timer};
-
+use log::{info, };
 mod ml;
 use burn::backend::rocm::{Rocm, RocmDevice};
 use ml::FlappyBirdModel;
@@ -30,7 +30,7 @@ impl Plugin for PipePlugin {
             (
                 despawn_pipes,
                 shift_pipes_to_the_left,
-                spawn_pipes.run_if(on_timer(Duration::from_millis(1000))),
+                //spawn_pipes.run_if(on_timer(Duration::from_millis(1000))),
             ),
         );
     }
@@ -160,5 +160,6 @@ fn think(mut model: ResMut<BirdBrain>,pipedata: Query<(Entity) , With<Pipe>>, bi
     };
     //do the actual thinking
     let device = RocmDevice::default();
+    info!( "hello");
     model.model.forward(state.to_tensor(&device));
 }
