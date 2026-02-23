@@ -7,7 +7,13 @@ use burn::backend::rocm::{Rocm, RocmDevice};
 use ml::FlappyBirdModel;
 use ml::FlappyBirdModelConfig;
 
+
+mod player;
 use crate::ml::GameStateFeatures;
+use crate::player::Player;
+use crate::player::Velocity;
+
+
 
 pub const CANVAS_SIZE: Vec2 = Vec2::new(480., 270.);
 pub const PLAYER_SIZE: f32 = 25.0;
@@ -139,12 +145,15 @@ fn despawn_pipes(mut commands: Commands, pipes: Query<(Entity, &Transform), With
         }
     }
 }
-//what will you have after 500 years ?
-fn think(mut model: ResMut<BirdBrain>) {
+// for a single bird , pass the relevant data to the model.  what will you have after 500 years ?
+fn think(mut model: ResMut<BirdBrain>,pipedata: Query<(Entity) , With<Pipe>>, bird: Single<(Entity,  &Transform, &Velocity ), With<Player>>, transform_helper: TransformHelper ) {
     //collect GameState
+    let calculated_velocity =
+        Vec2::new(PIPE_SPEED, bird.2.0).to_angle();
+    
     let state = GameStateFeatures {
-        bird_y: 0.0,
-        bird_velocity: 0.0,
+        bird_y: bird.1.translation.y,
+        bird_velocity: calculated_velocity,
         next_pipe_top_y: 0.0,
         next_pipe_bottom_y: 0.0,
         next_pipe_distance: 0.0,

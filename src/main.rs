@@ -15,6 +15,10 @@ use bevy::{
 };
 use flappy_bird::*;
 
+mod player;
+
+use crate::player::*;
+
 fn main() -> AppExit {
     App::new()
         .init_resource::<Score>()
@@ -53,15 +57,6 @@ fn main() -> AppExit {
         .run()
 }
 
-#[derive(Component)]
-#[require(Gravity(1000.), Velocity)]
-struct Player;
-
-#[derive(Component)]
-struct Gravity(f32);
-
-#[derive(Component, Default)]
-struct Velocity(f32);
 
 #[derive(Event)]
 struct EndGame;
