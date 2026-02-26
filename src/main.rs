@@ -23,13 +23,14 @@ fn main() -> AppExit {
     App::new()
         .init_resource::<Score>()
         .add_plugins(DefaultPlugins)
+
         .add_plugins((
             PipePlugin,
-            BrainPlugin,
             Material2dPlugin::<BackgroundMaterial>::default(
             ),
         ))
         .add_systems(Startup, startup)
+        .add_plugins( BrainPlugin      )
         .add_systems(
             FixedUpdate,
             (
@@ -48,6 +49,7 @@ fn main() -> AppExit {
                 enforce_bird_direction,
             ),
         )
+                
         .add_observer(respawn_on_endgame)
         .add_observer(
             |_trigger: On<ScorePoint>,
@@ -62,14 +64,6 @@ fn main() -> AppExit {
 #[derive(Event)]
 struct EndGame;
 
-#[derive(Resource, Default)]
-struct Score(u32);
-
-#[derive(Event)]
-pub struct ScorePoint;
-
-#[derive(Component)]
-struct ScoreText;
 
 fn startup(
     mut commands: Commands,

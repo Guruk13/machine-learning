@@ -1,19 +1,17 @@
 use std::time::Duration;
 
 use bevy::{image::ImageLoaderSettings, prelude::*, time::common_conditions::on_timer};
-use log::{info, };
+
 mod ml;
 use burn::backend::rocm::{Rocm, RocmDevice};
 use ml::FlappyBirdModel;
 use ml::FlappyBirdModelConfig;
 
-
 mod player;
 use crate::ml::GameStateFeatures;
-use crate::player::Player;
-use crate::player::Velocity;
 
 
+use crate::player::*;
 
 pub const CANVAS_SIZE: Vec2 = Vec2::new(480., 270.);
 pub const PLAYER_SIZE: f32 = 25.0;
@@ -28,11 +26,12 @@ impl Plugin for PipePlugin {
         app.add_systems(
             FixedUpdate,
             (
-                despawn_pipes,
+                //despawn_pipes,
                 shift_pipes_to_the_left,
                 //spawn_pipes.run_if(on_timer(Duration::from_millis(1000))),
             ),
         );
+            
     }
 }
 
@@ -48,9 +47,9 @@ impl Plugin for BrainPlugin {
             }
             .init(&device),
         };
-
         app.insert_resource(bird_brain);
-        app.add_systems(FixedUpdate, (think,));
+        app.add_systems(FixedUpdate, (think,  despawn_pipes));
+
     }
 }
 
@@ -139,6 +138,7 @@ pub fn shift_pipes_to_the_left(mut pipes: Query<&mut Transform, With<Pipe>>, tim
 }
 
 fn despawn_pipes(mut commands: Commands, pipes: Query<(Entity, &Transform), With<Pipe>>) {
+
     for (entity, transform) in pipes.iter() {
         if transform.translation.x < -(CANVAS_SIZE.x / 2.0 + PIPE_SIZE.x) {
             commands.entity(entity).despawn();
@@ -146,20 +146,29 @@ fn despawn_pipes(mut commands: Commands, pipes: Query<(Entity, &Transform), With
     }
 }
 // for a single bird , pass the relevant data to the model.  what will you have after 500 years ?
-fn think(mut model: ResMut<BirdBrain>,pipedata: Query<(Entity) , With<Pipe>>, bird: Single<(Entity,  &Transform, &Velocity ), With<Player>>, transform_helper: TransformHelper ) {
+pub fn think(
+    mut model: ResMut<BirdBrain>,
+    _bird: Query<(&Sprite, Entity), With<Player>>,
+
+) {
+
+
+
     //collect GameState
-    let calculated_velocity =
-        Vec2::new(PIPE_SPEED, bird.2.0).to_angle();
+    //let calculated_velocity = Vec2::new(PIPE_SPEED, bird.2.0).to_angle();
+    warn!("very noisy");
+       
     
     let state = GameStateFeatures {
-        bird_y: bird.1.translation.y,
-        bird_velocity: calculated_velocity,
+        bird_y: 0.0,// #bird.1.translation.y,
+        bird_velocity: 0.0, //calculated_velocity,
         next_pipe_top_y: 0.0,
         next_pipe_bottom_y: 0.0,
         next_pipe_distance: 0.0,
     };
     //do the actual thinking
     let device = RocmDevice::default();
-    info!( "hello");
+
     model.model.forward(state.to_tensor(&device));
+    
 }

@@ -5,7 +5,6 @@ edition = "2024"
 
 [dependencies]
 bevy = "0.18.0"
-cubecl-hip-sys ={git = "https://github.com/thecodebreeze/cubecl-hip-sys.git"}
 burn = { version = "0.20.1", features = ["rocm"] }
 # Set max log levels. This helps avoid unwanted low-severity log spam, which can affect performance.
 log = { version = "0.4", features = [
@@ -47,5 +46,10 @@ codegen-units = 1
 lto = "thin"
 [env]
 ROCM_PATH="/opt/rocm"
+[patch.crates-io]
+cubecl-hip-sys = { git = 'https://github.com/thecodebreeze/cubecl-hip-sys.git' }
+
+
+
 
 
