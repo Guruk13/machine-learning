@@ -5,7 +5,8 @@ edition = "2024"
 
 [dependencies]
 bevy = "0.18.0"
-burn = { version = "0.20.1", features = ["rocm"] }
+#cubecl-hip-sys = { git = 'https://github.com/thecodebreeze/cubecl-hip-sys.git' }
+
 # Set max log levels. This helps avoid unwanted low-severity log spam, which can affect performance.
 log = { version = "0.4", features = [
     "max_level_debug",
@@ -15,6 +16,9 @@ tracing = { version = "0.1", features = [
     "max_level_debug",
     "release_max_level_warn",
 ] }
+burn-wgpu = "0.17"
+burn = "0.17"
+
 
 # Idiomatic Bevy code often triggers these lints, and the CI workflow treats them as errors.
 # In some cases they may still signal poor code quality however, so consider commenting out these lines.
@@ -46,10 +50,11 @@ codegen-units = 1
 lto = "thin"
 [env]
 ROCM_PATH="/opt/rocm"
+
+#cubecl-hip-sys = { git = 'https://github.com/thecodebreeze/cubecl-hip-sys.git' }
+
+#codespan-reporting  = { git = 'https://github.com/brendanzab/codespan.git' }
 [patch.crates-io]
-cubecl-hip-sys = { git = 'https://github.com/thecodebreeze/cubecl-hip-sys.git' }
-
-
 
 
 
