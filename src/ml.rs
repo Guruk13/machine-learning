@@ -1,8 +1,9 @@
 // Machine Learning module for Flappy Bird AI
 //https://burn.dev/books/burn/basic-workflow/model.html
 use burn::{
-     config::Config, module::Module, nn::{Linear, LinearConfig, Relu}, prelude::Backend, Tensor
+     config::Config, module::Module, nn::{Linear, LinearConfig, Relu}, prelude::Backend
 };
+use burn::tensor::Tensor;
 
 
 use log::{info, warn};
@@ -46,7 +47,6 @@ impl<B: Backend> FlappyBirdModel<B> {
         let x = self.linear2.forward(x);
         let x = self.activation.forward(x);
         let flap = sigmoid(self.linear3.forward(x)); // Output between 0 and 1
-        info!( "{flap}");
         flap
 
     }

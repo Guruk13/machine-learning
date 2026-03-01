@@ -6,13 +6,12 @@ use bevy::{
 #[derive(Component)]
 pub struct Gravity(pub f32);
 
-#[derive(Component, Default)]
+#[derive(Component, Default,Debug)]
 pub struct Velocity(pub f32);
 
-#[derive(Component)]
+#[derive(Component, Debug)]
 #[require(Gravity(1000.), Velocity)]
 pub struct Player;
-
 
 #[derive(Resource, Default)]
 pub struct Score(pub u32);

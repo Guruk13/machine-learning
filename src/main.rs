@@ -1,18 +1,13 @@
 use bevy::{
     camera::ScalingMode,
     image::ImageAddressMode,
-    math::bounding::{
-        Aabb2d, BoundingCircle, IntersectsVolume,
-    },
+    math::bounding::{Aabb2d, BoundingCircle, IntersectsVolume},
     prelude::*,
     render::render_resource::AsBindGroup,
     shader::ShaderRef,
     sprite_render::{Material2d, Material2dPlugin},
 };
-use bevy::{
-    color::palettes::tailwind::RED_400,
-    image::ImageLoaderSettings,
-};
+use bevy::{color::palettes::tailwind::RED_400, image::ImageLoaderSettings};
 use flappy_bird::*;
 
 mod player;
@@ -23,14 +18,11 @@ fn main() -> AppExit {
     App::new()
         .init_resource::<Score>()
         .add_plugins(DefaultPlugins)
-
         .add_plugins((
             PipePlugin,
-            Material2dPlugin::<BackgroundMaterial>::default(
-            ),
+            Material2dPlugin::<BackgroundMaterial>::default(),
         ))
         .add_systems(Startup, startup)
-        .add_plugins( BrainPlugin      )
         .add_systems(
             FixedUpdate,
             (
@@ -44,26 +36,20 @@ fn main() -> AppExit {
             Update,
             (
                 controls,
-                score_update
-                    .run_if(resource_changed::<Score>),
+                score_update.run_if(resource_changed::<Score>),
                 enforce_bird_direction,
             ),
         )
-                
         .add_observer(respawn_on_endgame)
-        .add_observer(
-            |_trigger: On<ScorePoint>,
-             mut score: ResMut<Score>| {
-                score.0 += 1;
-            },
-        )
+        .add_observer(|_trigger: On<ScorePoint>, mut score: ResMut<Score>| {
+            score.0 += 1;
+        })
+        .add_plugins(BrainPlugin)
         .run()
 }
 
-
 #[derive(Event)]
 struct EndGame;
-
 
 fn startup(
     mut commands: Commands,
@@ -72,8 +58,7 @@ fn startup(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<BackgroundMaterial>>,
 ) {
-    let (config, _) = config_store
-        .config_mut::<DefaultGizmoConfigGroup>();
+    let (config, _) = config_store.config_mut::<DefaultGizmoConfigGroup>();
     config.enabled = false;
 
     commands.spawn((
@@ -115,10 +100,7 @@ fn startup(
     ));
 
     commands.spawn((
-        Mesh2d(meshes.add(Rectangle::new(
-            CANVAS_SIZE.x,
-            CANVAS_SIZE.x,
-        ))),
+        Mesh2d(meshes.add(Rectangle::new(CANVAS_SIZE.x, CANVAS_SIZE.x))),
         MeshMaterial2d(materials.add(BackgroundMaterial {
             color_texture: asset_server.load_with_settings(
                 "background_color_grass.png",
@@ -126,30 +108,18 @@ fn startup(
                     settings
                         .sampler
                         .get_or_init_descriptor()
-                        .set_address_mode(
-                            ImageAddressMode::Repeat,
-                        );
+                        .set_address_mode(ImageAddressMode::Repeat);
                 },
             ),
         })),
     ));
 }
 
-fn gravity(
-    mut transforms: Query<(
-        &mut Transform,
-        &mut Velocity,
-        &Gravity,
-    )>,
-    time: Res<Time>,
-) {
-    for (mut transform, mut velocity, gravity) in
-        &mut transforms
-    {
+fn gravity(mut transforms: Query<(&mut Transform, &mut Velocity, &Gravity)>, time: Res<Time>) {
+    for (mut transform, mut velocity, gravity) in &mut transforms {
         velocity.0 -= gravity.0 * time.delta_secs();
 
-        transform.translation.y +=
-            velocity.0 * time.delta_secs();
+        transform.translation.y += velocity.0 * time.delta_secs();
     }
 }
 
@@ -157,24 +127,16 @@ fn controls(
     mut velocity: Single<&mut Velocity, With<Player>>,
     buttons: Res<ButtonInput<MouseButton>>,
 ) {
-    if buttons.any_just_pressed([
-        MouseButton::Left,
-        MouseButton::Right,
-    ]) {
+    if buttons.any_just_pressed([MouseButton::Left, MouseButton::Right]) {
         velocity.0 = 400.;
     }
 }
 
-fn check_in_bounds(
-    player: Single<&Transform, With<Player>>,
-    mut commands: Commands,
-) {
-    if player.translation.y
-        < -CANVAS_SIZE.y / 2.0 - PLAYER_SIZE
-        || player.translation.y
-            > CANVAS_SIZE.y / 2.0 + PLAYER_SIZE
+fn check_in_bounds(player: Single<&Transform, With<Player>>, mut commands: Commands) {
+    if player.translation.y < -CANVAS_SIZE.y / 2.0 - PLAYER_SIZE
+        || player.translation.y > CANVAS_SIZE.y / 2.0 + PLAYER_SIZE
     {
-        commands.trigger(EndGame);
+        //commands.trigger(EndGame);
     }
 }
 
@@ -194,20 +156,14 @@ fn respawn_on_endgame(
 fn check_collisions(
     mut commands: Commands,
     player: Single<(&Sprite, Entity), With<Player>>,
-    pipe_segments: Query<
-        (&Sprite, Entity),
-        Or<(With<PipeTop>, With<PipeBottom>)>,
-    >,
+    pipe_segments: Query<(&Sprite, Entity), Or<(With<PipeTop>, With<PipeBottom>)>>,
     pipe_gaps: Query<(&Sprite, Entity), With<PointsGate>>,
     mut gizmos: Gizmos,
     transform_helper: TransformHelper,
 ) -> Result<()> {
-    let player_transform = transform_helper
-        .compute_global_transform(player.1)?;
-    let player_collider = BoundingCircle::new(
-        player_transform.translation().xy(),
-        PLAYER_SIZE / 2.,
-    );
+    let player_transform = transform_helper.compute_global_transform(player.1)?;
+    let player_collider =
+        BoundingCircle::new(player_transform.translation().xy(), PLAYER_SIZE / 2.);
 
     gizmos.circle_2d(
         player_transform.translation().xy(),
@@ -216,8 +172,7 @@ fn check_collisions(
     );
 
     for (sprite, entity) in &pipe_segments {
-        let pipe_transform = transform_helper
-            .compute_global_transform(entity)?;
+        let pipe_transform = transform_helper.compute_global_transform(entity)?;
         let pipe_collider = Aabb2d::new(
             pipe_transform.translation().xy(),
             sprite.custom_size.unwrap() / 2.,
@@ -234,8 +189,7 @@ fn check_collisions(
     }
 
     for (sprite, entity) in &pipe_gaps {
-        let gap_transform = transform_helper
-            .compute_global_transform(entity)?;
+        let gap_transform = transform_helper.compute_global_transform(entity)?;
         let gap_collider = Aabb2d::new(
             gap_transform.translation().xy(),
             sprite.custom_size.unwrap() / 2.,
@@ -256,10 +210,7 @@ fn check_collisions(
     Ok(())
 }
 
-fn score_update(
-    mut query: Query<&mut Text, With<ScoreText>>,
-    score: Res<Score>,
-) {
+fn score_update(mut query: Query<&mut Text, With<ScoreText>>, score: Res<Score>) {
     for mut span in &mut query {
         span.0 = score.0.to_string();
     }
@@ -278,15 +229,9 @@ impl Material2d for BackgroundMaterial {
     }
 }
 
-fn enforce_bird_direction(
-    mut player: Single<
-        (&mut Transform, &Velocity),
-        With<Player>,
-    >,
-) {
-    let calculated_velocity =
-        Vec2::new(PIPE_SPEED, player.1.0);
-    player.0.rotation = Quat::from_rotation_z(
-        calculated_velocity.to_angle(),
-    );
+fn enforce_bird_direction(mut players: Query<(&mut Transform, &Velocity), With<Player>>) {
+    for mut player in players {
+        let calculated_velocity = Vec2::new(PIPE_SPEED, player.1.0);
+        player.0.rotation = Quat::from_rotation_z(calculated_velocity.to_angle());
+    }
 }
