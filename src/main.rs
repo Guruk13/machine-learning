@@ -10,19 +10,22 @@ use bevy::{
 use bevy::{color::palettes::tailwind::RED_400, image::ImageLoaderSettings};
 use flappy_bird::*;
 
-mod player;
+
 
 use crate::player::*;
+use player::GameSets;
+use ml::GameStateFeatures;
 
 fn main() -> AppExit {
     App::new()
         .init_resource::<Score>()
+        .configure_sets(FixedUpdate, (GameSets::Game, GameSets::AI).chain())
         .add_plugins(DefaultPlugins)
         .add_plugins((
             PipePlugin,
             Material2dPlugin::<BackgroundMaterial>::default(),
         ))
-        .add_systems(Startup, startup)
+        .add_systems(Startup, (startup, ApplyDeferred).in_set(GameSets::Game))
         .add_systems(
             FixedUpdate,
             (
@@ -38,8 +41,10 @@ fn main() -> AppExit {
                 controls,
                 score_update.run_if(resource_changed::<Score>),
                 enforce_bird_direction,
+    
             ),
         )
+
         .add_observer(respawn_on_endgame)
         .add_observer(|_trigger: On<ScorePoint>, mut score: ResMut<Score>| {
             score.0 += 1;
@@ -235,3 +240,4 @@ fn enforce_bird_direction(mut players: Query<(&mut Transform, &Velocity), With<P
         player.0.rotation = Quat::from_rotation_z(calculated_velocity.to_angle());
     }
 }
+

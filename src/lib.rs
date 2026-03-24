@@ -2,16 +2,14 @@ use std::time::Duration;
 
 use bevy::{image::ImageLoaderSettings, prelude::*, time::common_conditions::on_timer};
 
-mod ml;
 use burn_wgpu::{Wgpu, WgpuDevice};
 
-use ml::FlappyBirdModel;
-use ml::FlappyBirdModelConfig;
+pub mod ml;
+use crate::ml::*;
 
-mod player;
-use crate::ml::GameStateFeatures;
+pub mod player ; 
+use crate::player::* ;
 
-use crate::player::Player;
 
 pub const CANVAS_SIZE: Vec2 = Vec2::new(480., 270.);
 pub const PLAYER_SIZE: f32 = 25.0;
@@ -25,7 +23,6 @@ impl Plugin for PipePlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(
             FixedUpdate,
-            
             (
                 despawn_pipes,
                 shift_pipes_to_the_left,
@@ -41,14 +38,14 @@ impl Plugin for BrainPlugin {
     fn build(&self, app: &mut App) {
         let device = WgpuDevice::default();
         let bird_brain = BirdBrain {
-            model: FlappyBirdModelConfig {
+            model: ml::FlappyBirdModelConfig {
                 hidden_size1: 8,
                 hidden_size2: 4,
             }
             .init(&device),
         };
         app.insert_non_send_resource(bird_brain);
-        app.add_systems(FixedUpdate, think);
+        app.add_systems(FixedUpdate, (think).in_set(player::GameSets::AI));
     }
 }
 
@@ -142,37 +139,25 @@ fn despawn_pipes(mut commands: Commands, pipes: Query<(Entity, &Transform), With
     }
 }
 //  data to the model for each bird .  what will you have after 500 years ?
-pub fn think(/* mut model: NonSend<BirdBrain>, */  birds: Query<(&mut Transform), With<Player>> ) {
+pub fn think(/* mut model: NonSend<BirdBrain>, */ birds: Query<&Player>) {
     //collect GameState
-    warn!{"{:#?}", birds}
-    for bird in birds.iter() {
-/*         warn!{"{:#?}", bird.1.translation.y};
-        let calculated_velocity = Vec2::new(PIPE_SPEED, bird.0.0).to_angle();
-        warn!{"{:#?}", calculated_velocity};
- */
-/*
-    let state = GameStateFeatures {
-        bird_y: 0.0,        // #bird.1.translation.y,
-        bird_velocity: 0.0, //calculated_velocity,
-        next_pipe_top_y: 0.0,
-        next_pipe_bottom_y: 0.0,
-        next_pipe_distance: 0.0,
-    };
-    //do the actual thinking
-    let device = WgpuDevice::default();
+    warn! {"{:#?}", birds}
+    /*     for bird in birds.iter() {
+    /*         warn!{"{:#?}", bird.1.translation.y};
+            let calculated_velocity = Vec2::new(PIPE_SPEED, bird.0.0).to_angle();
+            warn!{"{:#?}", calculated_velocity};
+     */
+    /*
+        let state = GameStateFeatures {
+            bird_y: 0.0,        // #bird.1.translation.y,
+            bird_velocity: 0.0, //calculated_velocity,
+            next_pipe_top_y: 0.0,
+            next_pipe_bottom_y: 0.0,
+            next_pipe_distance: 0.0,
+        };
+        //do the actual thinking
+        let device = WgpuDevice::default();
 
-    model.model.forward(state.to_tensor(&device)); */
-    }
+        model.model.forward(state.to_tensor(&device)); */
+        } */
 }
-
-
-/*  fn think(
-    mut player: Single<
-        (&mut Transform, &Velocity),
-        With<Player>,
-    >,
-) {
-    warn!{ player}
-
-} */
-

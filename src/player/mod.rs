@@ -21,3 +21,9 @@ pub struct ScorePoint;
 
 #[derive(Component)]
 pub struct ScoreText;
+#[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
+pub enum GameSets {
+    Game,
+    AI,
+}
+

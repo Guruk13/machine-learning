@@ -9,6 +9,7 @@ use burn::tensor::Tensor;
 use log::{info, warn};
 use burn::tensor::activation::sigmoid;
 
+
 // Define the neural network architecture
 #[derive(Module, Debug)]
 pub struct FlappyBirdModel<B: Backend> {
