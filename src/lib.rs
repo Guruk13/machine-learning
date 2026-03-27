@@ -2,14 +2,14 @@ use std::time::Duration;
 
 use bevy::{image::ImageLoaderSettings, prelude::*, time::common_conditions::on_timer};
 
+use burn::tensor::Float;
 use burn_wgpu::{Wgpu, WgpuDevice};
 
 pub mod ml;
 use crate::ml::*;
 
-pub mod player ; 
-use crate::player::* ;
-
+pub mod player;
+use crate::player::*;
 
 pub const CANVAS_SIZE: Vec2 = Vec2::new(480., 270.);
 pub const PLAYER_SIZE: f32 = 25.0;
@@ -139,18 +139,14 @@ fn despawn_pipes(mut commands: Commands, pipes: Query<(Entity, &Transform), With
     }
 }
 //  data to the model for each bird .  what will you have after 500 years ?
-pub fn think(/* mut model: NonSend<BirdBrain>, */ birds: Query<&Player>) {
+pub fn think(model: NonSend<BirdBrain>, birds: Query<(&Transform, &Velocity), With<Player>>) {
     //collect GameState
-    warn! {"{:#?}", birds}
-    /*     for bird in birds.iter() {
-    /*         warn!{"{:#?}", bird.1.translation.y};
-            let calculated_velocity = Vec2::new(PIPE_SPEED, bird.0.0).to_angle();
-            warn!{"{:#?}", calculated_velocity};
-     */
-    /*
+
+    for bird in birds.iter() {
+        let calculated_velocity = Vec2::new(PIPE_SPEED, bird.1.0).to_angle();
         let state = GameStateFeatures {
-            bird_y: 0.0,        // #bird.1.translation.y,
-            bird_velocity: 0.0, //calculated_velocity,
+            bird_y: bird.0.translation.y,
+            bird_fall_rate: calculated_velocity, //calculated_velocity,
             next_pipe_top_y: 0.0,
             next_pipe_bottom_y: 0.0,
             next_pipe_distance: 0.0,
@@ -158,6 +154,8 @@ pub fn think(/* mut model: NonSend<BirdBrain>, */ birds: Query<&Player>) {
         //do the actual thinking
         let device = WgpuDevice::default();
 
-        model.model.forward(state.to_tensor(&device)); */
-        } */
+        model.model.forward(state.to_tensor(&device));
+    }
 }
+
+pub fn get_relevant_pipes(pipes: Query<(&Sprite, Entity), With<Pipe>>) {}

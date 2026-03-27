@@ -50,6 +50,7 @@ codegen-units = 1
 lto = "thin"
 [env]
 ROCM_PATH="/opt/rocm"
+RUSTFLAGS="$RUSTFLAGS -A dead_code"
 
 #cubecl-hip-sys = { git = 'https://github.com/thecodebreeze/cubecl-hip-sys.git' }
 
