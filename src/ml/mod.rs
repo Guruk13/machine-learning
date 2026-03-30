@@ -3,6 +3,7 @@ use bevy::reflect::Reflect;
 //https://burn.dev/books/burn/basic-workflow/model.html
 use burn::tensor::Tensor;
 use burn::tensor::activation::sigmoid;
+use burn::tensor::cast::ToElement;
 use burn::{
     config::Config,
     module::Module,
@@ -23,8 +24,7 @@ pub struct FlappyBirdModel<B: Backend> {
     activation: Relu,
 }
 
-impl<B: Backend> FlappyBirdModel<B> where
-    B: Backend<BoolElem = bool> {
+impl<B: Backend> FlappyBirdModel<B> {
     /// Initialize a new model with random weights
     pub fn new(device: Option<B::Device>) -> Self {
         let device = device.unwrap_or(B::Device::default());
@@ -37,34 +37,22 @@ impl<B: Backend> FlappyBirdModel<B> where
         }
     }
 
-pub fn forward(&self, input: Tensor<B, 2>) -> bool {
-    let x = self.linear1.forward(input);
-    let x = self.activation.forward(x);
-    let x = self.linear2.forward(x);
-    let x = self.activation.forward(x);
-    let x = sigmoid(self.linear3.forward(x)); // Tensor<B, 2> shape [1, 1]
+    // Used for TRAINING — returns raw probability [0,1]
+    pub fn forward(&self, input: Tensor<B, 1>) -> Tensor<B, 1> {
+        let x = self.linear1.forward(input);
+        let x = self.activation.forward(x);
+        let x = self.linear2.forward(x);
+        let x = self.activation.forward(x);
+        let x = self.linear3.forward(x); // no relu here!
+        sigmoid(x)
+    }
 
-    let flap: bool = x
-        .greater_elem(0.5)      // Tensor<B, 2, Bool>  shape [1, 1]
-        .reshape(-1)            // Tensor<B, 1, Bool>  shape [1]
-        .squeeze(0)              // Tensor<B, 0, Bool>  scalar
-        .into_scalar();          // bool                // plain Rust bool
-
-    warn!("{:#?}", flap);
-    flap
-}
-
-    pub fn forward_classification(
-        &self,
-        images: Tensor<B, 3>,
-        targets: Tensor<B, 1, Int>,
-    ) -> ClassificationOutput<B> {
-        let output = self.forward(images);
-        let loss = CrossEntropyLossConfig::new()
-            .init(&output.device())
-            .forward(output.clone(), targets.clone());
-
-        ClassificationOutput::new(loss, output, targets)
+    // Used for INFERENCE — returns the actual decision
+    pub fn should_jump(&self, input: Tensor<B, 1>) -> bool {
+        self.forward(input)
+            .greater_elem(0.5)
+            .into_scalar()
+            .to_bool()      
     }
 }
 
@@ -90,22 +78,22 @@ impl FlappyBirdModelConfig {
 #[derive(Debug, Clone, Copy)]
 pub struct GameStateFeatures {
     pub bird_y: f32,
-    pub bird_fall_rate: f32,
+    pub bird_speed: f32,
     pub next_pipe_top_y: f32,
     pub next_pipe_bottom_y: f32,
     pub next_pipe_distance: f32,
 }
 
 impl GameStateFeatures {
-    pub fn to_tensor<B: Backend>(&self, device: &B::Device) -> Tensor<B, 2> {
+    pub fn to_tensor<B: Backend>(&self, device: &B::Device) -> Tensor<B, 1> {
         Tensor::from_floats(
-            [[
+            [
                 self.bird_y,
-                self.bird_fall_rate,
+                self.bird_speed,
                 self.next_pipe_top_y,
                 self.next_pipe_bottom_y,
                 self.next_pipe_distance,
-            ]],
+            ],
             device,
         )
     }

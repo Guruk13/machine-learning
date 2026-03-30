@@ -5,6 +5,8 @@ use bevy::{image::ImageLoaderSettings, prelude::*, time::common_conditions::on_t
 use burn::tensor::Float;
 use burn_wgpu::{Wgpu, WgpuDevice};
 
+use rand::prelude::*;
+
 pub mod ml;
 use crate::ml::*;
 
@@ -139,23 +141,40 @@ fn despawn_pipes(mut commands: Commands, pipes: Query<(Entity, &Transform), With
     }
 }
 //  data to the model for each bird .  what will you have after 500 years ?
-pub fn think(model: NonSend<BirdBrain>, birds: Query<(&Transform, &Velocity), With<Player>>) {
+pub fn think(
+    brain: NonSend<BirdBrain>,
+    birds: Query<(&Transform, &Velocity), With<Player>>,
+    pipe_tops: Query<&GlobalTransform, With<PipeTop>>,
+    pipe_bottoms: Query<&GlobalTransform, With<PipeBottom>>,
+) {
     //collect GameState
-
+    // Get an RNG:
+    let mut rng = rand::rng();
     for bird in birds.iter() {
         let calculated_velocity = Vec2::new(PIPE_SPEED, bird.1.0).to_angle();
+
+        let bird_x = bird.0.translation.x;
+
+        let nearest_top = pipe_tops.iter().find(|t| t.translation().x > bird_x); 
+        let nearest_bottom = pipe_bottoms.iter().find(|t| t.translation().x > bird_x); 
+        
+        //warn!("{:#?}", flap);
+        let nearest_top_y = nearest_top.map(|t| t.translation().y).unwrap_or(-1.0);
+        let nearest_bottom_y = nearest_bottom.map(|t| t.translation().y).unwrap_or(-1.0);
+        //warn!("{:#?}", nearest_bottom_y);
+        //warn!("{:#?}", nearest_top_y);
         let state = GameStateFeatures {
             bird_y: bird.0.translation.y,
-            bird_fall_rate: calculated_velocity, //calculated_velocity,
-            next_pipe_top_y: 0.0,
-            next_pipe_bottom_y: 0.0,
-            next_pipe_distance: 0.0,
+            bird_speed: calculated_velocity, //calculated_velocity,
+            next_pipe_top_y: nearest_top_y,
+            next_pipe_bottom_y: nearest_bottom_y,
+            next_pipe_distance: rng.random_range(0..10) as f32,
         };
         //do the actual thinking
         let device = WgpuDevice::default();
+        let bool: bool = brain.model.forward(state.to_tensor(&device));
 
-        model.model.forward(state.to_tensor(&device));
+
+
     }
 }
-
-pub fn get_relevant_pipes(pipes: Query<(&Sprite, Entity), With<Pipe>>) {}
