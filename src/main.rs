@@ -11,7 +11,6 @@ use bevy::{color::palettes::tailwind::RED_400, image::ImageLoaderSettings};
 use flappy_bird::*;
 
 use crate::player::*;
-use ml::GameStateFeatures;
 use player::GameSets;
 
 fn main() -> AppExit {
@@ -28,17 +27,17 @@ fn main() -> AppExit {
             FixedUpdate,
             (
                 //gravity,
-                check_in_bounds,
-                check_collisions,
+                check_in_bounds.run_if(any_with_component::<Bird>),
+                check_collisions.run_if(any_with_component::<Bird>),
             )
                 .chain(),
         )
         .add_systems(
             Update,
             (
-                controls,
+                controls.run_if(any_with_component::<Player>),
                 score_update.run_if(resource_changed::<Score>),
-                enforce_bird_direction,
+                enforce_bird_direction.run_if(any_with_component::<Bird>),
             ),
         )
         .add_observer(respawn_on_endgame)
@@ -71,17 +70,6 @@ fn startup(
             },
             ..OrthographicProjection::default_2d()
         }),
-    ));
-
-    commands.spawn((
-        Player,
-        Sprite {
-            custom_size: Some(Vec2::splat(PLAYER_SIZE)),
-            image: asset_server.load("bevy-bird.png"),
-            color: Srgba::hex("#282828").unwrap().into(),
-            ..default()
-        },
-        Transform::from_xyz(-CANVAS_SIZE.x / 4.0, 0.0, 1.0),
     ));
 
     commands.spawn((
@@ -133,7 +121,7 @@ fn controls(
     }
 }
 
-fn check_in_bounds(player: Single<&Transform, With<Player>>, mut commands: Commands) {
+fn check_in_bounds(player: Single<&Transform, With<Player>>, commands: Commands) {
     if player.translation.y < -CANVAS_SIZE.y / 2.0 - PLAYER_SIZE
         || player.translation.y > CANVAS_SIZE.y / 2.0 + PLAYER_SIZE
     {
@@ -153,6 +141,14 @@ fn respawn_on_endgame(
         Velocity(0.),
     ));
 }
+
+/* fn spawn_birds(mut commands: Commands, asset_server: Res<AssetServer>) {
+    commands.spawn(Bird::new(&*asset_server));
+}
+
+fn spawn_player(mut commands: Commands, asset_server: Res<AssetServer>) {
+    commands.spawn((Player, Bird::new(&*asset_server)));
+} */
 
 fn check_collisions(
     mut commands: Commands,
@@ -230,7 +226,7 @@ impl Material2d for BackgroundMaterial {
     }
 }
 
-fn enforce_bird_direction(mut players: Query<(&mut Transform, &Velocity), With<Player>>) {
+fn enforce_bird_direction(players: Query<(&mut Transform, &Velocity), With<Bird>>) {
     for mut player in players {
         let calculated_velocity = Vec2::new(PIPE_SPEED, player.1.0);
         player.0.rotation = Quat::from_rotation_z(calculated_velocity.to_angle());

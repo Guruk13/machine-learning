@@ -1,17 +1,22 @@
 use bevy::{
     prelude::*,
 };
+use crate::PLAYER_SIZE;
+use crate::CANVAS_SIZE;
 
 
 #[derive(Component)]
 pub struct Gravity(pub f32);
 
+
+
 #[derive(Component, Default,Debug)]
 pub struct Velocity(pub f32);
 
 #[derive(Component, Debug)]
-#[require(Gravity(1000.), Velocity)]
 pub struct Player;
+
+
 
 #[derive(Resource, Default)]
 pub struct Score(pub u32);
@@ -26,4 +31,27 @@ pub enum GameSets {
     Game,
     AI,
 }
+
+
+#[derive(Component)]
+pub struct Bird {
+    sprite: Sprite,
+    transform: Transform,
+}
+
+
+    pub fn new(asset_server: &AssetServer) {
+        [
+            Sprite {
+                custom_size: Some(Vec2::splat(PLAYER_SIZE)),
+                image: asset_server.load("bevy-bird.png"),
+                color: Srgba::hex("#282828").unwrap().into(),
+                ..default()
+            },
+
+
+            Transform::from_xyz(-CANVAS_SIZE.x / 4.0, 0.0, 1.0),
+        ]
+    }
+
 

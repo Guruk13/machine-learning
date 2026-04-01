@@ -31,9 +31,9 @@ impl<B: Backend> FlappyBirdModel<B> {
 
         Self {
             activation: Relu::new(),
-            linear1: LinearConfig::new(5, 8).init(&device),
-            linear2: LinearConfig::new(8, 4).init(&device),
-            linear3: LinearConfig::new(4, 1).init(&device),
+            linear1: LinearConfig::new(6, 10).init(&device),
+            linear2: LinearConfig::new(10, 8).init(&device),
+            linear3: LinearConfig::new(8, 1).init(&device),
         }
     }
 
@@ -81,7 +81,8 @@ pub struct GameStateFeatures {
     pub bird_speed: f32,
     pub next_pipe_top_y: f32,
     pub next_pipe_bottom_y: f32,
-    pub next_pipe_distance: f32,
+    pub dist_top: f32,
+    pub dist_bot: f32,
 }
 
 impl GameStateFeatures {
@@ -92,7 +93,8 @@ impl GameStateFeatures {
                 self.bird_speed,
                 self.next_pipe_top_y,
                 self.next_pipe_bottom_y,
-                self.next_pipe_distance,
+                self.dist_top,
+                self.dist_bot
             ],
             device,
         )

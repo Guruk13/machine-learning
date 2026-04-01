@@ -2,10 +2,7 @@ use std::time::Duration;
 
 use bevy::{image::ImageLoaderSettings, prelude::*, time::common_conditions::on_timer};
 
-use burn::tensor::Float;
 use burn_wgpu::{Wgpu, WgpuDevice};
-
-use rand::prelude::*;
 
 pub mod ml;
 use crate::ml::*;
@@ -47,6 +44,7 @@ impl Plugin for BrainPlugin {
             .init(&device),
         };
         app.insert_non_send_resource(bird_brain);
+        //app.add_observer(attach_episodes);
         app.add_systems(FixedUpdate, (think).in_set(player::GameSets::AI));
     }
 }
@@ -68,6 +66,20 @@ pub struct PipeBottom;
 
 #[derive(Component)]
 pub struct PointsGate;
+
+//memories of a bird, "This is essentially a simple form of A3C (Asynchronous Advantage Actor-Critic)"
+#[derive(Component, Default)]
+pub struct BirdEpisode {
+    pub steps: Vec<Step>,
+}
+
+#[derive(Debug, Clone)]
+pub struct Step {
+    pub state: GameStateFeatures,
+    pub jumped: bool,
+    pub prob: f32, // the raw sigmoid output at that frame
+    pub reward: f32,
+}
 
 fn spawn_pipes(mut commands: Commands, asset_server: Res<AssetServer>, time: Res<Time>) {
     let image =
@@ -140,24 +152,29 @@ fn despawn_pipes(mut commands: Commands, pipes: Query<(Entity, &Transform), With
         }
     }
 }
-//  data to the model for each bird .  what will you have after 500 years ?
+
+//  Birds think .  what will you have after 500 years ?
 pub fn think(
     brain: NonSend<BirdBrain>,
-    birds: Query<(&Transform, &Velocity), With<Player>>,
+    birds: Query<(&Transform, &Velocity), (With<Bird>, Without<Player>)>,
     pipe_tops: Query<&GlobalTransform, With<PipeTop>>,
     pipe_bottoms: Query<&GlobalTransform, With<PipeBottom>>,
 ) {
-    //collect GameState
-    // Get an RNG:
-    let mut rng = rand::rng();
+    //collect GameState for each bird
     for bird in birds.iter() {
         let calculated_velocity = Vec2::new(PIPE_SPEED, bird.1.0).to_angle();
-
+        let bird_y = bird.0.translation.y;
         let bird_x = bird.0.translation.x;
+        let nearest_top = pipe_tops.iter().find(|t| t.translation().x > bird_x);
+        let nearest_bottom = pipe_bottoms.iter().find(|t| t.translation().x > bird_x);
+        let dist_to_top = nearest_top
+            .map(|t| t.translation().y - bird_y)
+            .unwrap_or(f32::MAX);
 
-        let nearest_top = pipe_tops.iter().find(|t| t.translation().x > bird_x); 
-        let nearest_bottom = pipe_bottoms.iter().find(|t| t.translation().x > bird_x); 
-        
+        let dist_to_bottom = nearest_bottom
+            .map(|t| bird_y - t.translation().y)  
+            .unwrap_or(f32::MAX);
+
         //warn!("{:#?}", flap);
         let nearest_top_y = nearest_top.map(|t| t.translation().y).unwrap_or(-1.0);
         let nearest_bottom_y = nearest_bottom.map(|t| t.translation().y).unwrap_or(-1.0);
@@ -168,13 +185,29 @@ pub fn think(
             bird_speed: calculated_velocity, //calculated_velocity,
             next_pipe_top_y: nearest_top_y,
             next_pipe_bottom_y: nearest_bottom_y,
-            next_pipe_distance: rng.random_range(0..10) as f32,
+            dist_top: dist_to_top,
+            dist_bot: dist_to_bottom,
         };
         //do the actual thinking
         let device = WgpuDevice::default();
-        let bool: bool = brain.model.forward(state.to_tensor(&device));
+        brain.model.forward(state.to_tensor(&device));
 
+        //record game state
+        // in your game update system:
+        //let tensor = state.to_tensor(&device);
 
+        //LIFO 3 seconds
+        /*             episode.steps.push(Step {
+            state: [state.bird_y, state.bird_speed,
+                    state.next_pipe_top_y, state.next_pipe_bottom_y,
+                    state.next_pipe_distance],
+            jumped,
+            prob,
+            reward: 0.0, // filled in later
+        }); */
 
+        //shine on
+
+        //brain.model.should_jump();
     }
 }
