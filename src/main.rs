@@ -22,7 +22,10 @@ fn main() -> AppExit {
             PipePlugin,
             Material2dPlugin::<BackgroundMaterial>::default(),
         ))
-        .add_systems(Startup, (startup, ApplyDeferred).in_set(GameSets::Game))
+        .add_systems(
+            Startup,
+            (startup, spawn_birds, ApplyDeferred).in_set(GameSets::Game),
+        )
         .add_systems(
             FixedUpdate,
             (
@@ -41,6 +44,7 @@ fn main() -> AppExit {
             ),
         )
         .add_observer(respawn_on_endgame)
+        .add_observer(bird_respawn)
         .add_observer(|_trigger: On<ScorePoint>, mut score: ResMut<Score>| {
             score.0 += 1;
         })
@@ -50,6 +54,11 @@ fn main() -> AppExit {
 
 #[derive(Event)]
 struct EndGame;
+
+#[derive(Event)]
+struct BirdDeath {
+    bird: Entity,
+}
 
 fn startup(
     mut commands: Commands,
@@ -121,89 +130,112 @@ fn controls(
     }
 }
 
-fn check_in_bounds(player: Single<&Transform, With<Player>>, commands: Commands) {
-    if player.translation.y < -CANVAS_SIZE.y / 2.0 - PLAYER_SIZE
-        || player.translation.y > CANVAS_SIZE.y / 2.0 + PLAYER_SIZE
-    {
-        //commands.trigger(EndGame);
+fn check_in_bounds(
+    birds: Query<(Entity, &Transform, Has<Player>), With<Bird>>,
+    mut commands: Commands,
+) {
+    // check each bird
+    for (entity, transform, is_player) in birds.iter() {
+        if transform.translation.y < -CANVAS_SIZE.y / 2.0 - PLAYER_SIZE
+            || transform.translation.y > CANVAS_SIZE.y / 2.0 + PLAYER_SIZE
+        {
+            if is_player {
+                //commands.trigger(EndGame);
+            } else {
+                commands.trigger(BirdDeath { bird: entity });
+            }
+        }
     }
 }
 
 fn respawn_on_endgame(
     _: On<EndGame>,
     mut commands: Commands,
-    player: Single<Entity, With<Player>>,
+    player: Option<Single<Entity, With<Player>>>,
     mut score: ResMut<Score>,
 ) {
-    score.0 = 0;
-    commands.entity(*player).insert((
-        Transform::from_xyz(-CANVAS_SIZE.x / 4.0, 0.0, 1.0),
-        Velocity(0.),
-    ));
+    match player {
+        None => { /* not spawned yet, do nothing */ }
+        Some(player) => {
+            score.0 = 0;
+            commands.entity(*player).insert((
+                Transform::from_xyz(-CANVAS_SIZE.x / 4.0, 0.0, 1.0),
+                Velocity(0.),
+            ));
+        }
+    }
 }
 
-/* fn spawn_birds(mut commands: Commands, asset_server: Res<AssetServer>) {
-    commands.spawn(Bird::new(&*asset_server));
+fn spawn_birds(mut commands: Commands, asset_server: Res<AssetServer>) {
+    for _n in 0..2 {
+        commands.spawn(Bird::new(&*asset_server));
+    }
 }
 
 fn spawn_player(mut commands: Commands, asset_server: Res<AssetServer>) {
     commands.spawn((Player, Bird::new(&*asset_server)));
-} */
+}
 
 fn check_collisions(
     mut commands: Commands,
-    player: Single<(&Sprite, Entity), With<Player>>,
+    birds: Query<(&Sprite, Entity, Has<Player>), With<Bird>>,
     pipe_segments: Query<(&Sprite, Entity), Or<(With<PipeTop>, With<PipeBottom>)>>,
     pipe_gaps: Query<(&Sprite, Entity), With<PointsGate>>,
     mut gizmos: Gizmos,
     transform_helper: TransformHelper,
 ) -> Result<()> {
-    let player_transform = transform_helper.compute_global_transform(player.1)?;
-    let player_collider =
-        BoundingCircle::new(player_transform.translation().xy(), PLAYER_SIZE / 2.);
+    for bird in birds.iter() {
+        let bird_transform = transform_helper.compute_global_transform(bird.1)?;
+        let bird_collider =
+            BoundingCircle::new(bird_transform.translation().xy(), PLAYER_SIZE / 2.);
 
-    gizmos.circle_2d(
-        player_transform.translation().xy(),
-        PLAYER_SIZE / 2.,
-        RED_400,
-    );
-
-    for (sprite, entity) in &pipe_segments {
-        let pipe_transform = transform_helper.compute_global_transform(entity)?;
-        let pipe_collider = Aabb2d::new(
-            pipe_transform.translation().xy(),
-            sprite.custom_size.unwrap() / 2.,
-        );
-
-        gizmos.rect_2d(
-            pipe_transform.translation().xy(),
-            sprite.custom_size.unwrap(),
-            RED_400,
-        );
-        if player_collider.intersects(&pipe_collider) {
-            commands.trigger(EndGame);
-        }
-    }
-
-    for (sprite, entity) in &pipe_gaps {
-        let gap_transform = transform_helper.compute_global_transform(entity)?;
-        let gap_collider = Aabb2d::new(
-            gap_transform.translation().xy(),
-            sprite.custom_size.unwrap() / 2.,
-        );
-
-        gizmos.rect_2d(
-            gap_transform.translation().xy(),
-            sprite.custom_size.unwrap().xy(),
+        gizmos.circle_2d(
+            bird_transform.translation().xy(),
+            PLAYER_SIZE / 2.,
             RED_400,
         );
 
-        if player_collider.intersects(&gap_collider) {
-            commands.trigger(ScorePoint);
-            commands.entity(entity).despawn();
+        for (sprite, entity) in &pipe_segments {
+            let pipe_transform = transform_helper.compute_global_transform(entity)?;
+            let pipe_collider = Aabb2d::new(
+                pipe_transform.translation().xy(),
+                sprite.custom_size.unwrap() / 2.,
+            );
+
+            gizmos.rect_2d(
+                pipe_transform.translation().xy(),
+                sprite.custom_size.unwrap(),
+                RED_400,
+            );
+            if bird_collider.intersects(&pipe_collider) {
+                //is_player
+                if bird.2 {
+                    //commands.trigger(EndGame);
+                } else {
+                    commands.trigger(BirdDeath { bird: bird.1 });
+                }
+            }
+        }
+
+        for (sprite, entity) in &pipe_gaps {
+            let gap_transform = transform_helper.compute_global_transform(entity)?;
+            let gap_collider = Aabb2d::new(
+                gap_transform.translation().xy(),
+                sprite.custom_size.unwrap() / 2.,
+            );
+
+            gizmos.rect_2d(
+                gap_transform.translation().xy(),
+                sprite.custom_size.unwrap().xy(),
+                RED_400,
+            );
+
+            if bird_collider.intersects(&gap_collider) {
+                commands.trigger(ScorePoint);
+                //commands.entity(entity).despawn();
+            }
         }
     }
-
     Ok(())
 }
 
@@ -231,4 +263,12 @@ fn enforce_bird_direction(players: Query<(&mut Transform, &Velocity), With<Bird>
         let calculated_velocity = Vec2::new(PIPE_SPEED, player.1.0);
         player.0.rotation = Quat::from_rotation_z(calculated_velocity.to_angle());
     }
+}
+
+fn bird_respawn(entity_event: On<BirdDeath>, mut commands: Commands) {
+    warn!("you're crying in the rain pal..");
+/*     commands.entity(entity_event.bird).insert((
+        Transform::from_xyz(-CANVAS_SIZE.x / 4.0, 0.0, 1.0),
+        Velocity(0.),
+    )); */
 }

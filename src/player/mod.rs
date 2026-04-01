@@ -32,26 +32,22 @@ pub enum GameSets {
     AI,
 }
 
-
 #[derive(Component)]
-pub struct Bird {
-    sprite: Sprite,
-    transform: Transform,
-}
+pub struct Bird;
 
-
-    pub fn new(asset_server: &AssetServer) {
-        [
+impl Bird {
+    pub fn new(asset_server: &AssetServer) -> (Bird, Sprite, Transform) {
+        (
+            Bird,
             Sprite {
                 custom_size: Some(Vec2::splat(PLAYER_SIZE)),
                 image: asset_server.load("bevy-bird.png"),
                 color: Srgba::hex("#282828").unwrap().into(),
                 ..default()
             },
-
-
             Transform::from_xyz(-CANVAS_SIZE.x / 4.0, 0.0, 1.0),
-        ]
+        )
     }
+}
 
 
