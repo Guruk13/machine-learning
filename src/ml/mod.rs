@@ -67,7 +67,7 @@ impl FlappyBirdModelConfig {
     pub fn init<B: Backend>(&self, device: &B::Device) -> FlappyBirdModel<B> {
         FlappyBirdModel {
             activation: Relu::new(),
-            linear1: LinearConfig::new(5, self.hidden_size1).init(device),
+            linear1: LinearConfig::new(6, self.hidden_size1).init(device),
             linear2: LinearConfig::new(self.hidden_size1, self.hidden_size2).init(device),
             linear3: LinearConfig::new(self.hidden_size2, 1).init(device),
         }

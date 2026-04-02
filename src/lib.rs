@@ -155,16 +155,17 @@ fn despawn_pipes(mut commands: Commands, pipes: Query<(Entity, &Transform), With
 
 //  Birds think .  what will you have after 500 years ?
 pub fn think(
+    mut commands: Commands,
     brain: NonSend<BirdBrain>,
-    birds: Query<(&Transform, &Velocity), (With<Bird>, Without<Player>)>,
+    birds: Query<(&Transform, &Velocity, Entity), (With<Bird>, Without<Player>)>,
     pipe_tops: Query<&GlobalTransform, With<PipeTop>>,
     pipe_bottoms: Query<&GlobalTransform, With<PipeBottom>>,
 ) {
     //collect GameState for each bird
-    for bird in birds.iter() {
-        let calculated_velocity = Vec2::new(PIPE_SPEED, bird.1.0).to_angle();
-        let bird_y = bird.0.translation.y;
-        let bird_x = bird.0.translation.x;
+    for (transform, velocity, entity) in &birds {
+        let calculated_velocity = Vec2::new(PIPE_SPEED, velocity.0).to_angle();
+        let bird_y = transform.translation.y;
+        let bird_x = transform.translation.x;
         let nearest_top = pipe_tops.iter().find(|t| t.translation().x > bird_x);
         let nearest_bottom = pipe_bottoms.iter().find(|t| t.translation().x > bird_x);
         let dist_to_top = nearest_top
@@ -172,7 +173,7 @@ pub fn think(
             .unwrap_or(f32::MAX);
 
         let dist_to_bottom = nearest_bottom
-            .map(|t| bird_y - t.translation().y)  
+            .map(|t| bird_y - t.translation().y)
             .unwrap_or(f32::MAX);
 
         //warn!("{:#?}", flap);
@@ -181,7 +182,7 @@ pub fn think(
         //warn!("{:#?}", nearest_bottom_y);
         //warn!("{:#?}", nearest_top_y);
         let state = GameStateFeatures {
-            bird_y: bird.0.translation.y,
+            bird_y: transform.translation.y,
             bird_speed: calculated_velocity, //calculated_velocity,
             next_pipe_top_y: nearest_top_y,
             next_pipe_bottom_y: nearest_bottom_y,
@@ -208,6 +209,6 @@ pub fn think(
 
         //shine on
 
-        //brain.model.should_jump();
+        commands.trigger(BirdJump { entity });
     }
 }

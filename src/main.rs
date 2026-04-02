@@ -1,3 +1,4 @@
+use bevy::ecs::event::Trigger;
 use bevy::{
     camera::ScalingMode,
     image::ImageAddressMode,
@@ -12,8 +13,6 @@ use flappy_bird::*;
 
 use crate::player::*;
 use player::GameSets;
-
-
 
 fn main() -> AppExit {
     App::new()
@@ -47,20 +46,16 @@ fn main() -> AppExit {
         )
         .add_observer(respawn_on_endgame)
         .add_observer(bird_respawn)
+        .add_observer(on_bird_jump)
         .add_observer(|_trigger: On<ScorePoint>, mut score: ResMut<Score>| {
             score.0 += 1;
         })
-        //.add_plugins(BrainPlugin)
+        .add_plugins(BrainPlugin)
         .run()
 }
 
 #[derive(Event)]
 struct EndGame;
-
-#[derive(Event)]
-struct BirdDeath {
-    bird: Entity,
-}
 
 fn startup(
     mut commands: Commands,
@@ -124,11 +119,18 @@ fn gravity(mut transforms: Query<(&mut Transform, &mut Velocity, &Gravity)>, tim
 }
 
 fn controls(
-    mut velocity: Single<&mut Velocity, With<Player>>,
+    mut commands: Commands,
+    player: Option<Single<Entity, With<Player>>>,
     buttons: Res<ButtonInput<MouseButton>>,
 ) {
-    if buttons.any_just_pressed([MouseButton::Left, MouseButton::Right]) {
-        velocity.0 = 400.;
+    match player {
+        None => { /* not spawned yet, do nothing */ }
+        Some(player) => {
+            if buttons.any_just_pressed([MouseButton::Left, MouseButton::Right]) {
+                //velocity.0 = 400.;
+                commands.trigger(BirdJump *player );
+            }
+        }
     }
 }
 
@@ -175,7 +177,7 @@ fn spawn_birds(mut commands: Commands, asset_server: Res<AssetServer>) {
 }
 
 fn spawn_player(mut commands: Commands, asset_server: Res<AssetServer>) {
-    commands.spawn((Player, Bird::new(&*asset_server, true )));
+    commands.spawn((Player, Bird::new(&*asset_server, true)));
 }
 
 fn check_collisions(
@@ -210,7 +212,6 @@ fn check_collisions(
                 if bird.2 {
                     //commands.trigger(EndGame);
                 } else {
-
                     commands.trigger(BirdDeath { bird: bird.1 });
                 }
             }
@@ -265,10 +266,17 @@ fn enforce_bird_direction(players: Query<(&mut Transform, &Velocity), With<Bird>
 }
 
 fn bird_respawn(entity_event: On<BirdDeath>, mut commands: Commands) {
-
-
     commands.entity(entity_event.bird).insert((
         Transform::from_xyz(-CANVAS_SIZE.x / 4.0, 0.0, 1.0),
         Velocity(0.),
     ));
 }
+
+fn on_bird_jump(trigger: Trigger<B>, mut velocities: Query<&mut Velocity, With<Bird>>) {
+    if let Ok(mut velocity) = velocities.get_mut(trigger.event().bird) {
+        velocity.0 = 400.; // this is the ONE place that knows how jumping works
+    }
+}
+
+
+//https://docs.rs/bevy_ecs/0.18.0/bevy_ecs/event/struct.EntityTrigger.html

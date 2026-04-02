@@ -36,6 +36,19 @@ pub enum GameSets {
 #[derive(Component, Debug)]
 pub struct Bird;
 
+
+
+#[derive(Event)]
+pub struct BirdDeath {
+    pub bird: Entity,
+}
+
+
+#[derive(EntityEvent)]
+#[entity_event(propagate)]
+pub struct BirdJump(Entity);
+
+
 impl Bird {
     pub fn new(asset_server: &AssetServer, rand:bool ) -> (Bird, Sprite, Transform) {
         (
