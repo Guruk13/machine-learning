@@ -13,6 +13,8 @@ use flappy_bird::*;
 use crate::player::*;
 use player::GameSets;
 
+
+
 fn main() -> AppExit {
     App::new()
         .init_resource::<Score>()
@@ -48,7 +50,7 @@ fn main() -> AppExit {
         .add_observer(|_trigger: On<ScorePoint>, mut score: ResMut<Score>| {
             score.0 += 1;
         })
-        .add_plugins(BrainPlugin)
+        //.add_plugins(BrainPlugin)
         .run()
 }
 
@@ -167,13 +169,13 @@ fn respawn_on_endgame(
 }
 
 fn spawn_birds(mut commands: Commands, asset_server: Res<AssetServer>) {
-    for _n in 0..2 {
-        commands.spawn(Bird::new(&*asset_server));
+    for _n in 0..10 {
+        commands.spawn(Bird::new(&*asset_server, true));
     }
 }
 
 fn spawn_player(mut commands: Commands, asset_server: Res<AssetServer>) {
-    commands.spawn((Player, Bird::new(&*asset_server)));
+    commands.spawn((Player, Bird::new(&*asset_server, true )));
 }
 
 fn check_collisions(
@@ -189,11 +191,7 @@ fn check_collisions(
         let bird_collider =
             BoundingCircle::new(bird_transform.translation().xy(), PLAYER_SIZE / 2.);
 
-        gizmos.circle_2d(
-            bird_transform.translation().xy(),
-            PLAYER_SIZE / 2.,
-            RED_400,
-        );
+        gizmos.circle_2d(bird_transform.translation().xy(), PLAYER_SIZE / 2., RED_400);
 
         for (sprite, entity) in &pipe_segments {
             let pipe_transform = transform_helper.compute_global_transform(entity)?;
@@ -212,6 +210,7 @@ fn check_collisions(
                 if bird.2 {
                     //commands.trigger(EndGame);
                 } else {
+
                     commands.trigger(BirdDeath { bird: bird.1 });
                 }
             }
@@ -266,9 +265,10 @@ fn enforce_bird_direction(players: Query<(&mut Transform, &Velocity), With<Bird>
 }
 
 fn bird_respawn(entity_event: On<BirdDeath>, mut commands: Commands) {
-    warn!("you're crying in the rain pal..");
-/*     commands.entity(entity_event.bird).insert((
+
+
+    commands.entity(entity_event.bird).insert((
         Transform::from_xyz(-CANVAS_SIZE.x / 4.0, 0.0, 1.0),
         Velocity(0.),
-    )); */
+    ));
 }

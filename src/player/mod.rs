@@ -3,6 +3,7 @@ use bevy::{
 };
 use crate::PLAYER_SIZE;
 use crate::CANVAS_SIZE;
+use rand::*;
 
 
 #[derive(Component)]
@@ -32,11 +33,11 @@ pub enum GameSets {
     AI,
 }
 
-#[derive(Component)]
+#[derive(Component, Debug)]
 pub struct Bird;
 
 impl Bird {
-    pub fn new(asset_server: &AssetServer) -> (Bird, Sprite, Transform) {
+    pub fn new(asset_server: &AssetServer, rand:bool ) -> (Bird, Sprite, Transform) {
         (
             Bird,
             Sprite {
@@ -45,7 +46,8 @@ impl Bird {
                 color: Srgba::hex("#282828").unwrap().into(),
                 ..default()
             },
-            Transform::from_xyz(-CANVAS_SIZE.x / 4.0, 0.0, 1.0),
+            if rand {Transform::from_xyz(-CANVAS_SIZE.x / rand::random_range(1..=4) as f32, 0.0, 1.0)} else {Transform::from_xyz(-CANVAS_SIZE.x / 4.0, 0.0, 1.0)}
+            
         )
     }
 }
