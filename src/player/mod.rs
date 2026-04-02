@@ -1,23 +1,16 @@
-use bevy::{
-    prelude::*,
-};
-use crate::PLAYER_SIZE;
 use crate::CANVAS_SIZE;
+use crate::PLAYER_SIZE;
+use bevy::prelude::*;
 use rand::*;
-
 
 #[derive(Component)]
 pub struct Gravity(pub f32);
 
-
-
-#[derive(Component, Default,Debug)]
+#[derive(Component, Default, Debug)]
 pub struct Velocity(pub f32);
 
 #[derive(Component, Debug)]
 pub struct Player;
-
-
 
 #[derive(Resource, Default)]
 pub struct Score(pub u32);
@@ -34,23 +27,21 @@ pub enum GameSets {
 }
 
 #[derive(Component, Debug)]
+#[require(Gravity(1000.), Velocity)]
 pub struct Bird;
-
-
 
 #[derive(Event)]
 pub struct BirdDeath {
     pub bird: Entity,
 }
 
-
 #[derive(EntityEvent)]
 #[entity_event(propagate)]
-pub struct BirdJump(Entity);
+pub struct BirdJump(pub Entity);
 
 
 impl Bird {
-    pub fn new(asset_server: &AssetServer, rand:bool ) -> (Bird, Sprite, Transform) {
+    pub fn new(asset_server: &AssetServer, rand: bool) -> (Bird, Sprite, Transform) {
         (
             Bird,
             Sprite {
@@ -59,10 +50,11 @@ impl Bird {
                 color: Srgba::hex("#282828").unwrap().into(),
                 ..default()
             },
-            if rand {Transform::from_xyz(-CANVAS_SIZE.x / rand::random_range(1..=4) as f32, 0.0, 1.0)} else {Transform::from_xyz(-CANVAS_SIZE.x / 4.0, 0.0, 1.0)}
-            
+            if rand {
+                Transform::from_xyz(-CANVAS_SIZE.x / rand::random_range(1..=4) as f32, rand::random_range(0..=50)as f32, 1.0)
+            } else {
+                Transform::from_xyz(-CANVAS_SIZE.x / 4.0, 0.0, 1.0)
+            },
         )
     }
 }
-
-

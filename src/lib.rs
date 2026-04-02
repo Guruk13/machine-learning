@@ -209,6 +209,6 @@ pub fn think(
 
         //shine on
 
-        commands.trigger(BirdJump { entity });
+        //commands.trigger(BirdJump ( entity) );
     }
 }
