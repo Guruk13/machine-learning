@@ -173,7 +173,7 @@ fn respawn_on_endgame(
 }
 
 fn spawn_birds(mut commands: Commands, asset_server: Res<AssetServer>) {
-    for _n in 0..1 {
+    for _n in 0..5 {
         commands.spawn(Bird::new(&*asset_server, true));
     }
 }
@@ -269,7 +269,7 @@ fn enforce_bird_direction(players: Query<(&mut Transform, &Velocity), With<Bird>
 
 fn bird_respawn(entity_event: On<BirdDeath>, mut commands: Commands) {
     commands.entity(entity_event.bird).insert((
-        Transform::from_xyz(-CANVAS_SIZE.x / 4.0, 0.0, 1.0),
+        Transform::from_xyz(-CANVAS_SIZE.x / 4.0, rand::random_range(0..=5)as f32, 1.0),
         Velocity(0.),
     ));
 }
@@ -280,4 +280,4 @@ fn on_bird_jump(event: On<BirdJump>, mut velocities: Query<&mut Velocity, With<B
     }
 }
 
-//https://docs.rs/bevy_ecs/0.18.0/bevy_ecs/event/struct.EntityTrigger.html
+

@@ -25,7 +25,7 @@ impl Plugin for PipePlugin {
             (
                 despawn_pipes,
                 shift_pipes_to_the_left,
-                spawn_pipes.run_if(on_timer(Duration::from_millis(1000))),
+                //spawn_pipes.run_if(on_timer(Duration::from_millis(1000))),
             ),
         );
     }
@@ -191,11 +191,11 @@ pub fn think(
         };
         //do the actual thinking
         let device = WgpuDevice::default();
-        brain.model.forward(state.to_tensor(&device));
+        let tensor = state.to_tensor(&device);
+        let tensor = brain.model.forward(tensor);
 
         //record game state
         // in your game update system:
-        //let tensor = state.to_tensor(&device);
 
         //LIFO 3 seconds
         /*             episode.steps.push(Step {
@@ -208,7 +208,10 @@ pub fn think(
         }); */
 
         //shine on
-
-        //commands.trigger(BirdJump ( entity) );
+        if brain.model.should_jump(tensor) {
+            commands.trigger(BirdJump(entity));
+        } else {
+            warn!("not because you pelican means you pelishould");
+        }
     }
 }

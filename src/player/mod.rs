@@ -35,6 +35,7 @@ pub struct BirdDeath {
     pub bird: Entity,
 }
 
+//https://docs.rs/bevy_ecs/0.18.0/bevy_ecs/event/struct.EntityTrigger.html don't tell claude about this or i'll be jobless 
 #[derive(EntityEvent)]
 #[entity_event(propagate)]
 pub struct BirdJump(pub Entity);
@@ -51,7 +52,7 @@ impl Bird {
                 ..default()
             },
             if rand {
-                Transform::from_xyz(-CANVAS_SIZE.x / rand::random_range(1..=4) as f32, rand::random_range(0..=50)as f32, 1.0)
+                Transform::from_xyz(-CANVAS_SIZE.x / rand::random_range(1..=4) as f32, rand::random_range(0..=5)as f32, 1.0)
             } else {
                 Transform::from_xyz(-CANVAS_SIZE.x / 4.0, 0.0, 1.0)
             },
