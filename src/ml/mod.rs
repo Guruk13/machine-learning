@@ -8,17 +8,16 @@
 use bevy::prelude::*;
 use burn::{
     config::Config,
+    module::AutodiffModule,
     module::Module,
-    nn::{Linear, LinearConfig, Relu},
-    optim::{Adam, AdamConfig, GradientsParams, Optimizer},
+    nn::{Linear, LinearConfig, Relu, loss::MseLoss, loss::Reduction},
+    optim::{Adam, AdamConfig, GradientsParams, Optimizer, adaptor::OptimizerAdaptor},
     prelude::Backend,
-    tensor::{
-        ElementConversion, Tensor,
-        backend::AutodiffBackend,
-        loss::Reduction,
-    },
+    tensor::{ElementConversion, Tensor, backend::AutodiffBackend},
 };
-use rand::Rng;
+
+use rand::{Rng, RngExt};
+use rand::{SeedableRng, rngs::StdRng};
 use std::collections::VecDeque;
 
 // ─────────────────────────────────────────────
@@ -27,7 +26,7 @@ use std::collections::VecDeque;
 
 /// Input  : 6 features  (bird_y, bird_speed, pipe_top_y, pipe_bottom_y, dist_top, dist_bot)
 /// Output : 2 Q-values  (Q[do-nothing], Q[jump])
-#[derive(Module, Debug, Clone)]
+#[derive(Module, Debug)]
 pub struct DQNModel<B: Backend> {
     linear1: Linear<B>, // 6 → 64
     linear2: Linear<B>, // 64 → 64
@@ -39,9 +38,9 @@ impl<B: Backend> DQNModel<B> {
     pub fn new(device: &B::Device) -> Self {
         Self {
             activation: Relu::new(),
-            linear1: LinearConfig::new(6, 64).init(device),
-            linear2: LinearConfig::new(64, 64).init(device),
-            linear3: LinearConfig::new(64, 2).init(device),
+            linear1: LinearConfig::new(6, 16).init(device),
+            linear2: LinearConfig::new(16, 16).init(device),
+            linear3: LinearConfig::new(16, 2).init(device),
         }
     }
 
@@ -143,7 +142,7 @@ impl ReplayBuffer {
     pub fn sample(&self, n: usize, rng: &mut impl Rng) -> Vec<&Transition> {
         let len = self.buffer.len();
         (0..n)
-            .map(|_| &self.buffer[rng.gen_range(0..len)])
+            .map(|_| &self.buffer[rand::random_range(0..len)])
             .collect()
     }
 }
@@ -157,7 +156,7 @@ pub struct DQNAgent<B: AutodiffBackend> {
     pub online: DQNModel<B>,
     pub target: DQNModel<B::InnerBackend>, // frozen, no grad
     // Optimizer
-    optimizer: Adam<B>,
+    optimizer: OptimizerAdaptor<Adam, DQNModel<B>, B>,
     // Replay
     pub replay: ReplayBuffer,
     // Hyper-parameters
@@ -167,6 +166,7 @@ pub struct DQNAgent<B: AutodiffBackend> {
     pub epsilon_decay: f32,
     pub batch_size: usize,
     pub target_sync_every: usize,
+
     // Counters
     pub steps: usize,
     pub device: B::Device,
@@ -202,8 +202,12 @@ impl<B: AutodiffBackend> DQNAgent<B> {
 
     /// ε-greedy: explore randomly or exploit the Q-network.
     pub fn select_action(&self, state: &GameStateFeatures, rng: &mut impl Rng) -> Action {
-        if rng.gen::<f32>() < self.epsilon {
-            if rand::gen_bool(0.5) { Action::Jump } else { Action::DoNothing }
+        if rng.random::<f32>() < self.epsilon {
+            if rng.random_bool(0.5) {
+                Action::Jump
+            } else {
+                Action::DoNothing
+            }
         } else {
             self.greedy_action(state)
         }
@@ -214,11 +218,12 @@ impl<B: AutodiffBackend> DQNAgent<B> {
         let input = Tensor::<B, 2>::from_floats([state.to_array()], &self.device);
         let q = self.online.forward(input); // [1, 2]
         // argmax over action dimension
-        let action_idx: i64 = q
-            .argmax(1)
-            .into_scalar()
-            .elem();
-        if action_idx == 1 { Action::Jump } else { Action::DoNothing }
+        let action_idx: i64 = q.argmax(1).into_scalar().elem();
+        if action_idx == 1 {
+            Action::Jump
+        } else {
+            Action::DoNothing
+        }
     }
 
     // ── Learning step ─────────────────────────────────────────────────────
@@ -234,7 +239,7 @@ impl<B: AutodiffBackend> DQNAgent<B> {
         // Sync target network periodically
         if self.steps % self.target_sync_every == 0 {
             self.target = self.online.clone().valid();
-            info!("[DQN] target network synced at step {}", self.steps);
+            //info!("[DQN] target network synced at step {}", self.steps);
         }
 
         // Train only once buffer has enough samples
@@ -250,10 +255,14 @@ impl<B: AutodiffBackend> DQNAgent<B> {
 
         // Build tensors  [batch, 6]
         let states_data: Vec<[f32; 6]> = batch.iter().map(|t| t.state.to_array()).collect();
-        let next_states_data: Vec<[f32; 6]> = batch.iter().map(|t| t.next_state.to_array()).collect();
+        let next_states_data: Vec<[f32; 6]> =
+            batch.iter().map(|t| t.next_state.to_array()).collect();
         let actions: Vec<usize> = batch.iter().map(|t| t.action as usize).collect();
         let rewards: Vec<f32> = batch.iter().map(|t| t.reward).collect();
-        let dones: Vec<f32> = batch.iter().map(|t| if t.done { 1.0 } else { 0.0 }).collect();
+        let dones: Vec<f32> = batch
+            .iter()
+            .map(|t| if t.done { 1.0 } else { 0.0 })
+            .collect();
 
         let b = self.batch_size;
         let dev = &self.device.clone();
@@ -261,16 +270,21 @@ impl<B: AutodiffBackend> DQNAgent<B> {
         // ── States → Q predictions (online network, with grad) ────────────
         // Flatten to [batch*6] then reshape
         let states_flat: Vec<f32> = states_data.into_iter().flatten().collect();
-        let states_tensor = Tensor::<B, 1>::from_floats(states_flat.as_slice(), dev)
-            .reshape([b, 6]);
+        let states_tensor =
+            Tensor::<B, 1>::from_floats(states_flat.as_slice(), dev).reshape([b, 6]);
 
         let q_all = self.online.forward(states_tensor); // [b, 2]
 
         // Gather Q(s, a) for the taken action
         let action_indices = Tensor::<B, 1, burn::tensor::Int>::from_ints(
-            actions.iter().map(|&a| a as i32).collect::<Vec<_>>().as_slice(),
+            actions
+                .iter()
+                .map(|&a| a as i32)
+                .collect::<Vec<_>>()
+                .as_slice(),
             dev,
-        ).reshape([b, 1]);
+        )
+        .reshape([b, 1]);
 
         let q_sa = q_all.gather(1, action_indices).squeeze(1); // [b]
 
@@ -278,15 +292,15 @@ impl<B: AutodiffBackend> DQNAgent<B> {
         let next_flat: Vec<f32> = next_states_data.into_iter().flatten().collect();
 
         // Target network uses inner (non-autodiff) backend
-        let next_tensor = Tensor::<B::InnerBackend, 1>::from_floats(next_flat.as_slice(), dev)
-            .reshape([b, 6]);
+        let next_tensor =
+            Tensor::<B::InnerBackend, 1>::from_floats(next_flat.as_slice(), dev).reshape([b, 6]);
 
         let q_next = self.target.forward(next_tensor); // [b, 2]
         let q_next_max = q_next.max_dim(1).squeeze(1); // [b]
 
         // ── Bellman target ────────────────────────────────────────────────
         let rewards_t = Tensor::<B::InnerBackend, 1>::from_floats(rewards.as_slice(), dev);
-        let dones_t   = Tensor::<B::InnerBackend, 1>::from_floats(dones.as_slice(), dev);
+        let dones_t = Tensor::<B::InnerBackend, 1>::from_floats(dones.as_slice(), dev);
 
         // target = r + γ * max_a Q_target(s', a) * (1 - done)
         let target_q = rewards_t + q_next_max * (dones_t.neg() + 1.0) * self.gamma;
@@ -295,7 +309,7 @@ impl<B: AutodiffBackend> DQNAgent<B> {
         let target_q_ad = Tensor::<B, 1>::from_inner(target_q);
 
         // ── MSE loss ──────────────────────────────────────────────────────
-        let loss = burn::tensor::loss::mse_loss(q_sa, target_q_ad, Reduction::Mean);
+        let loss = MseLoss::new().forward(q_sa, target_q_ad, Reduction::Mean);
 
         // ── Backprop + optimizer step ─────────────────────────────────────
         let gradients = loss.backward();
@@ -321,10 +335,10 @@ pub struct DQNResource {
 impl DQNResource {
     pub fn new() -> Self {
         use rand::SeedableRng;
-        let device = burn::backend::ndarray::NdArrayDevice::Cpu;
+        //let device = burn::backend::ndarray::NdArrayDevice::Cpu;
         Self {
             agent: DQNAgent::new(device),
-            rng: rand::rngs::SmallRng::from_entropy(),
+            rng: StdRng::from_entropy(),
         }
     }
 }
@@ -449,3 +463,4 @@ pub struct BirdOutcome {
     pub alive: bool,
     pub passed_pipe: bool,
 }
+

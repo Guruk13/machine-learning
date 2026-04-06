@@ -9,6 +9,7 @@ use crate::ml::*;
 
 pub mod player;
 use crate::player::*;
+use rand::rngs::SmallRng;
 
 pub const CANVAS_SIZE: Vec2 = Vec2::new(480., 270.);
 pub const PLAYER_SIZE: f32 = 25.0;
@@ -49,9 +50,27 @@ impl Plugin for BrainPlugin {
     }
 }
 
-pub struct BirdBrain {
-    model: FlappyBirdModel<Wgpu>,
+pub struct DQNResource {
+    pub agent: DQNAgent<MyBackend>,
+    pub rng: rand::rngs::SmallRng,
 }
+
+
+
+
+impl DQNResource {
+    pub fn new() -> Self {
+
+        let device = WgpuDevice::default();
+        //let device = burn::backend::ndarray::NdArrayDevice::Cpu;
+        Self {
+            agent: DQNAgent::new(&device),
+            rng: SmallRng::from_rng(&mut rand::thread_rng()).unwrap(),
+        }
+    }
+}
+
+
 
 unsafe impl Sync for BirdBrain {}
 
