@@ -1,7 +1,6 @@
 use crate::CANVAS_SIZE;
 use crate::PLAYER_SIZE;
 use bevy::prelude::*;
-use rand::*;
 
 #[derive(Component)]
 pub struct Gravity(pub f32);
