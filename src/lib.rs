@@ -7,9 +7,13 @@ use burn_wgpu::{Wgpu, WgpuDevice};
 pub mod ml;
 use crate::ml::*;
 
+use crate::ml::multiagent::AgentManager;
+
+
 pub mod player;
 use crate::player::*;
 use rand::rngs::SmallRng;
+use crate::ml::multiagent;
 
 pub const CANVAS_SIZE: Vec2 = Vec2::new(480., 270.);
 pub const PLAYER_SIZE: f32 = 25.0;
@@ -36,43 +40,27 @@ pub struct BrainPlugin;
 
 impl Plugin for BrainPlugin {
     fn build(&self, app: &mut App) {
-        let device = WgpuDevice::default();
-        let bird_brain = BirdBrain {
-            model: ml::FlappyBirdModelConfig {
-                hidden_size1: 8,
-                hidden_size2: 4,
-            }
-            .init(&device),
-        };
-        app.insert_non_send_resource(bird_brain);
+        app.insert_non_send_resource(AMRessource::new());
         //app.add_observer(attach_episodes);
         app.add_systems(FixedUpdate, (think).in_set(player::GameSets::AI));
     }
 }
 
-pub struct DQNResource {
-    pub agent: DQNAgent<MyBackend>,
-    pub rng: rand::rngs::SmallRng,
+pub struct AMRessource {
+    agentManager: AgentManager<B>,
 }
 
-
-
-
-impl DQNResource {
+impl AMRessource {
     pub fn new() -> Self {
-
         let device = WgpuDevice::default();
-        //let device = burn::backend::ndarray::NdArrayDevice::Cpu;
+
         Self {
-            agent: DQNAgent::new(&device),
-            rng: SmallRng::from_rng(&mut rand::thread_rng()).unwrap(),
+            agentManager: AgentManager::new(),
         }
     }
 }
 
-
-
-unsafe impl Sync for BirdBrain {}
+unsafe impl Sync for AMRessource {}
 
 #[derive(Component)]
 pub struct Pipe;
@@ -172,10 +160,19 @@ fn despawn_pipes(mut commands: Commands, pipes: Query<(Entity, &Transform), With
     }
 }
 
+fn bird_bind_agent(query: Query<Entity, Added<Bird>>,  mut resam:  NonSend<AgentManager>,) {
+    for entity in &query {
+        println!("Enemy spawned: {:?}", entity);
+    }
+}
+
+
+
+
 //  Birds think .  what will you have after 500 years ?
 pub fn think(
     mut commands: Commands,
-    brain: NonSend<BirdBrain>,
+    brain: NonSend<AgentManager>,
     birds: Query<(&Transform, &Velocity, Entity), (With<Bird>, Without<Player>)>,
     pipe_tops: Query<&GlobalTransform, With<PipeTop>>,
     pipe_bottoms: Query<&GlobalTransform, With<PipeBottom>>,
@@ -209,7 +206,7 @@ pub fn think(
             dist_bot: dist_to_bottom,
         };
         //do the actual thinking
-        let device = WgpuDevice::default();
+
         let tensor = state.to_tensor(&device);
         let tensor = brain.model.forward(tensor);
 

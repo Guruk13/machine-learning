@@ -5,8 +5,8 @@ use burn::{
     prelude::Backend,
     tensor::{Tensor, activation::softmax, backend::AutodiffBackend},
 };
+pub mod multiagent;
 
-mod multiagent;
 
 use burn::tensor::ElementConversion;
 // ─────────────────────────────────────────────
@@ -204,10 +204,6 @@ impl<B: AutodiffBackend> FlappyGradientAgent<B> {
 }
 
 
-// ─────────────────────────────────────────────
-// 5.  RE-EXPORTS  (keep old types visible)
-// ─────────────────────────────────────────────
-//pub use crate::{Action, GameStateFeatures};
 
 // ─────────────────────────────────────────────
 // 6.  REWARD SHAPING  (suggested values)
@@ -226,6 +222,9 @@ pub fn shaped_reward(alive: bool, passed_pipe: bool, dist_top: f32, dist_bot: f3
     let gap_centre_penalty = (dist_top - dist_bot).abs() * 0.001;
     r - gap_centre_penalty
 }
+
+
+
 #[derive(Debug, Clone, Copy, Default)]
 pub struct GameStateFeatures {
     pub bird_y: f32,
