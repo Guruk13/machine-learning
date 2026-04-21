@@ -11,11 +11,19 @@ pub struct Velocity(pub f32);
 #[derive(Component, Debug)]
 pub struct Player;
 
+#[derive(Component, Debug)]
+pub struct Dead;
+
+
 #[derive(Resource, Default)]
 pub struct Score(pub u32);
 
 #[derive(Event)]
-pub struct ScorePoint;
+pub struct ScorePoint {
+    pub bird: Entity,
+}
+
+
 
 #[derive(Component)]
 pub struct ScoreText;

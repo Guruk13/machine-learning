@@ -2,31 +2,13 @@ use super::Action;
 use super::FlappyGradientAgent;
 use super::GameStateFeatures;
 use burn::tensor::backend::AutodiffBackend;
-use burn_wgpu::{Wgpu, WgpuDevice};
 use std::collections::HashMap;
 
-//following traits are not really usefull except for bind agent which *may* be influenced by the way you implement the backend , other than that there's not much to keep 
+//following traits are not really usefull except for bind agent which *may* be influenced by the way you implement the backend , other than that there's not much to keep
 
-trait BindAgent<B: AutodiffBackend> {
+/* trait BindAgent<B: AutodiffBackend> {
     fn bind_agent(&mut self, key: String, gamma: f32, lr: f64);
-}
-
-trait FreeAgent<B: AutodiffBackend> {
-    fn free_agent(&mut self, key: String, value: FlappyGradientAgent<B>);
-}
-
-impl<B: AutodiffBackend> BindAgent<B> for AgentManager<B> {
-    fn bind_agent(&mut self, key: String, gamma: f32, lr: f64) {
-        let agent = FlappyGradientAgent::new(self.device.clone(), gamma, lr);
-        self.inner.insert(key, agent);
-    }      
-}
-
-impl<B: AutodiffBackend> FreeAgent<B> for AgentManager<B> {
-    fn free_agent(&mut self, key: String, _value: FlappyGradientAgent<B>) {
-        self.inner.remove(&key);
-    }
-}
+} */
 
 pub struct AgentManager<B: AutodiffBackend> {
     pub inner: HashMap<String, FlappyGradientAgent<B>>,
@@ -46,11 +28,20 @@ impl<B: AutodiffBackend> AgentManager<B> {
         self.inner[&key].select_action(state)
     }
 
+    pub fn bind_agent(&mut self, key: String, gamma: f32, lr: f64) {
+        let agent = FlappyGradientAgent::new(self.device.clone(), gamma, lr);
+        self.inner.insert(key, agent);
+    }
+
+    pub fn unbind_agent(&mut self, key: String, _value: FlappyGradientAgent<B>) {
+        self.inner.remove(&key);
+    }
+
     /// Record one tick of experience for bird `i`.
     pub fn record_step(
         &mut self,
         key: String,
-        state: GameStateFeatures,
+        state: &GameStateFeatures,
         action: Action,
         reward: f32,
     ) {

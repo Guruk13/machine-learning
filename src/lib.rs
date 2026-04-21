@@ -1,12 +1,9 @@
-use std::time::Duration;
+use bevy::ecs::schedule;
+use bevy::{image::ImageLoaderSettings, prelude::*};
 
-use bevy::{image::ImageLoaderSettings, prelude::*, time::common_conditions::on_timer};
-
-use burn::prelude::Backend;
-use burn::tensor::{Distribution, Tensor, Tolerance};
 use burn::backend::Autodiff;
 
-use burn::backend::wgpu::{Wgpu,WgpuDevice, WgpuRuntime};
+use burn::backend::wgpu::{Wgpu, WgpuDevice};
 
 pub mod ml;
 use crate::ml::*;
@@ -35,15 +32,17 @@ pub struct AMRessource<B: AutodiffBackend> {
         }
     }
 } */
-type MyBackend = burn_wgpu::CubeBackend<WgpuRuntime, f32, i32, u32>;
-type MyAutodiffBackend = burn_autodiff::Autodiff<MyBackend>;
+type MyBackend = Wgpu<f32, i32>;
+type MyAutodiffBackend = Autodiff<MyBackend>;
 
-impl<B> Resource for AMRessource<B>
+/* impl<B> Resource for AMRessource<B>
 where
     B: AutodiffBackend + Send + Sync + 'static,
     AgentManager<B>: Send + Sync,
 {
-}
+} */
+
+unsafe impl<B: AutodiffBackend> Sync for AMRessource<B> {}
 
 pub struct PipePlugin;
 
@@ -69,13 +68,19 @@ impl Plugin for BrainPlugin {
         let device: <MyAutodiffBackend as burn::tensor::backend::Backend>::Device =
             Default::default();
 
-        let resource = AMRessource::<MyAutodiffBackend> {
-            agent_manager: AgentManager::new(device.clone()),
+        let ressource = AMRessource::<MyAutodiffBackend> {
+            agent_manager: AgentManager::new(device),
         };
 
         app.insert_non_send_resource(ressource);
         //app.add_observer(attach_episodes);
+        app.add_systems(Update , bird_alive_reward);
+        app.add_observer(bird_death_reward);
+
+
+        app.add_systems(Update, bird_bind_agent);
         app.add_systems(FixedUpdate, (think).in_set(player::GameSets::AI));
+
     }
 }
 
@@ -177,23 +182,82 @@ fn despawn_pipes(mut commands: Commands, pipes: Query<(Entity, &Transform), With
     }
 }
 
-/* fn bird_bind_agent(query: Query<Entity, Added<Bird>>,  mut resam:  NonSend<AMRessource<B: AutodiffBackend>>,) {
+fn bird_bind_agent(
+    query: Query<Entity, Added<Bird>>,
+    mut am_ressource: NonSendMut<AMRessource<MyAutodiffBackend>>,
+) {
     for entity in &query {
-        println!("Enemy spawned: {:?}", entity);
+        
+        am_ressource.agent_manager.bind_agent(entity.index().to_string(), 0.99, 1e-4);
+        //warn!("Debout , joli bouton d'or : {:?}",entity.index().to_string());
     }
-} */
+}
 
 //  Birds think .  what will you have after 500 years ?
-pub fn think(
+ fn think(
     mut commands: Commands,
 
-    birds: Query<(&Transform, &Velocity, Entity), (With<Bird>, Without<Player>)>,
-    pipe_tops: Query<&GlobalTransform, With<PipeTop>>,
-    pipe_bottoms: Query<&GlobalTransform, With<PipeBottom>>,
-    brain: NonSend<AMRessource<B>>,
+    birds: Query< (Entity, &GameStateFeatures, &PartialReward, Option<&Dead>), (With<Bird>, Without<Player>)>,
+    mut am_ressource: NonSendMut<AMRessource<MyAutodiffBackend>>,
 ) {
-    //collect GameState for each bird
-    for (transform, velocity, entity) in &birds {
+    for (entity,&state, &reward, dead) in &birds {
+        let action: Action = am_ressource.agent_manager.select_action(entity.index().to_string(), &state);
+
+        match action {
+            Action::DoNothing => { /*  not because you pelican means you pelishould */ }
+            Action::Jump => {
+                //warn!( "Look mom , no .... : {:?}",entity.index().to_string());
+                commands.trigger(BirdJump(entity));
+            }
+        }
+
+        // Small bonus for staying near the centre of the gap
+        let gap_centre_penalty = (state.next_pipe_top_y - state.next_pipe_bottom_y).abs() * 0.001;
+        let reward = reward - gap_centre_penalty; 
+        am_ressource.agent_manager.record_step(entity.index().to_string(), &state, action, reward);
+        commands.entity(entity).remove::<PartialReward>();
+
+        match dead {
+            Some(dead) => {
+                am_ressource.agent_manager.bird_died(entity.index().to_string());
+                commands.entity(entity).remove::<Dead>();
+            },  
+            None        => {/* goes on */},           
+        };
+
+    }
+}
+
+
+
+
+
+
+/* there is a duality , events and rewards are computed on "framerate update", "thinking" is a bruteforce thread which consumes ressources far too fast. 
+in the system and event catcher below a RewardHolder is added , on fixed update (bruteforce) we look for component and run the computation if it is found
+. Game and Ai thread should balance out and meet in the middle with this hack.  */
+
+
+#[derive(Component, Default,Clone, Copy)]
+pub struct PartialReward(pub f32);
+
+impl std::ops::Sub<f32> for PartialReward {
+    type Output = f32;
+    fn sub(self, rhs: f32) -> f32 {
+        self.0 - rhs
+    }
+}
+
+
+
+// bird is alive: reward it ,  snapshot its POV
+fn bird_alive_reward(
+    mut commands: Commands,
+    birds: Query<(&Transform, &Velocity, Entity,Option<&PartialReward>), (With<Bird>, Without<Player>)>,
+    pipe_tops: Query<&GlobalTransform, With<PipeTop>>,
+    pipe_bottoms: Query<&GlobalTransform, With<PipeBottom>>,){
+
+        for (transform, velocity, entity, maybe_reward) in &birds {
         let calculated_velocity = Vec2::new(PIPE_SPEED, velocity.0).to_angle();
         let bird_y = transform.translation.y;
         let bird_x = transform.translation.x;
@@ -206,8 +270,6 @@ pub fn think(
         let dist_to_bottom = nearest_bottom
             .map(|t| bird_y - t.translation().y)
             .unwrap_or(f32::MAX);
-
-        //warn!("{:#?}", flap);
         let nearest_top_y = nearest_top.map(|t| t.translation().y).unwrap_or(-1.0);
         let nearest_bottom_y = nearest_bottom.map(|t| t.translation().y).unwrap_or(-1.0);
         //warn!("{:#?}", nearest_bottom_y);
@@ -220,29 +282,48 @@ pub fn think(
             dist_top: dist_to_top,
             dist_bot: dist_to_bottom,
         };
-        //do the actual thinking
+        commands.entity(entity).insert((state));
 
-        /* let tensor = state.to_tensor(&device);
-        let tensor = brain.model.forward(tensor); */
+        let new_score = match maybe_reward {
+            Some(score) => PartialReward(score.0 + RewardPrizes::default().alive),  // increment
+            None        => PartialReward(RewardPrizes::default().alive),             // insert fresh
+        };
 
-        //record game state
-        // in your game update system:
+        
+        commands.entity(entity).insert(new_score);
 
-        //LIFO 3 seconds
-        /*             episode.steps.push(Step {
-            state: [state.bird_y, state.bird_speed,
-                    state.next_pipe_top_y, state.next_pipe_bottom_y,
-                    state.next_pipe_distance],
-            jumped,
-            prob,
-            reward: 0.0, // filled in later
-        }); */
-
-        //shine on
-        if brain.model.should_jump(tensor) {
-            commands.trigger(BirdJump(entity));
-        } else {
-            warn!("not because you pelican means you pelishould");
-        }
+        
     }
 }
+
+
+fn bird_death_reward(
+    entity_event: On<BirdDeath>,
+    mut commands: Commands,
+     dead_birds: Query<(Entity, Option<&PartialReward>), With<Bird>>,
+) {
+    if let Ok((_entity, partial_reward)) = dead_birds.get(entity_event.bird) {
+        let new_score = match partial_reward {
+            Some(score) => PartialReward(score.0 + RewardPrizes::default().dying),
+            None        => PartialReward(RewardPrizes::default().dying),
+        };
+        commands.entity(entity_event.bird).insert(new_score);
+        commands.entity(entity_event.bird).insert(Dead);
+    }
+}
+
+fn bird_pass_reward(
+    entity_event: On<ScorePoint>,
+    mut commands: Commands,
+     birds: Query<(Entity, Option<&PartialReward>), With<Bird>>,
+) {
+    if let Ok((_entity, partial_reward)) = birds.get(entity_event.bird) {
+        let new_score = match partial_reward {
+            Some(score) => PartialReward(score.0 + RewardPrizes::default().pipe_cleared),
+            None        => PartialReward(RewardPrizes::default().pipe_cleared),
+        };
+        commands.entity(entity_event.bird).insert(new_score);
+    }
+}
+
+

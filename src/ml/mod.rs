@@ -1,3 +1,4 @@
+use bevy::prelude::Component;
 use burn::{
     module::Module,
     nn::{Linear, LinearConfig, Relu},
@@ -6,7 +7,6 @@ use burn::{
     tensor::{Tensor, activation::softmax, backend::AutodiffBackend},
 };
 pub mod multiagent;
-
 
 use burn::tensor::ElementConversion;
 // ─────────────────────────────────────────────
@@ -89,7 +89,7 @@ impl<B: AutodiffBackend> FlappyGradientAgent<B> {
     /// Returns (action, log_prob) — log_prob not needed at call-site but
     /// useful for debugging / entropy logging.
     pub fn select_action(&self, state: &GameStateFeatures) -> Action {
-        let input = self.state_to_tensor(state); // [1, 6]
+        let input = self.state_to_tensor(&state); // [1, 6]
         // Run in no-grad context — we only need probabilities here.
         let probs = self.flappy.forward(input); // [1, 2]
 
@@ -111,9 +111,9 @@ impl<B: AutodiffBackend> FlappyGradientAgent<B> {
     // ── episode bookkeeping ────────────────────────────────────────────────
 
     /// Call once per game tick after the environment returns a reward.
-    pub fn record_step(&mut self, state: GameStateFeatures, action: Action, reward: f32) {
+    pub fn record_step(&mut self, state: &GameStateFeatures, action: Action, reward: f32) {
         self.episode.push(EpisodeStep {
-            state,
+            state.clone(),
             action,
             reward,
         });
@@ -203,29 +203,7 @@ impl<B: AutodiffBackend> FlappyGradientAgent<B> {
     }
 }
 
-
-
-// ─────────────────────────────────────────────
-// 6.  REWARD SHAPING  (suggested values)
-// ─────────────────────────────────────────────
-/// Helper — call from your game loop to get a shaped reward each tick.
-/// Feel free to tune these constants.
-pub fn shaped_reward(alive: bool, passed_pipe: bool, dist_top: f32, dist_bot: f32) -> f32 {
-    if !alive {
-        return -1.0; // died
-    }
-    let mut r = 0.01; // small living bonus keeps the bird flying
-    if passed_pipe {
-        r += 1.0; // big reward for clearing a pipe
-    }
-    // Small bonus for staying near the centre of the gap
-    let gap_centre_penalty = (dist_top - dist_bot).abs() * 0.001;
-    r - gap_centre_penalty
-}
-
-
-
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Component, Debug, Clone, Copy, Default)]
 pub struct GameStateFeatures {
     pub bird_y: f32,
     pub bird_speed: f32,
@@ -252,4 +230,19 @@ impl GameStateFeatures {
 pub enum Action {
     DoNothing = 0,
     Jump = 1,
+}
+
+pub struct RewardPrizes {
+    pub dying: f32,
+    pub pipe_cleared: f32,
+    pub alive: f32,
+}
+impl Default for RewardPrizes {
+     fn default() -> Self {
+        Self {
+            dying: -1.0,
+            pipe_cleared: 1.0,
+            alive: 0.01
+        }
+    }
 }
