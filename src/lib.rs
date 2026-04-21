@@ -2,24 +2,48 @@ use std::time::Duration;
 
 use bevy::{image::ImageLoaderSettings, prelude::*, time::common_conditions::on_timer};
 
-use burn_wgpu::{Wgpu, WgpuDevice};
+use burn::prelude::Backend;
+use burn::tensor::{Distribution, Tensor, Tolerance};
+use burn::backend::Autodiff;
+
+use burn::backend::wgpu::{Wgpu,WgpuDevice, WgpuRuntime};
 
 pub mod ml;
 use crate::ml::*;
 
 use crate::ml::multiagent::AgentManager;
 
-
 pub mod player;
 use crate::player::*;
-use rand::rngs::SmallRng;
-use crate::ml::multiagent;
+use burn::tensor::backend::AutodiffBackend;
 
 pub const CANVAS_SIZE: Vec2 = Vec2::new(480., 270.);
 pub const PLAYER_SIZE: f32 = 25.0;
 const PIPE_SIZE: Vec2 = Vec2::new(32., CANVAS_SIZE.y);
 const GAP_SIZE: f32 = 100.0;
 pub const PIPE_SPEED: f32 = 200.0;
+
+pub struct AMRessource<B: AutodiffBackend> {
+    agent_manager: AgentManager<B>,
+}
+
+/* impl<B: AutodiffBackend<Device = WgpuDevice>> AMRessource<B> {
+    pub fn new() -> Self {
+        let device = WgpuDevice::default();
+        Self {
+            agent_manager: AgentManager::new(device),
+        }
+    }
+} */
+type MyBackend = burn_wgpu::CubeBackend<WgpuRuntime, f32, i32, u32>;
+type MyAutodiffBackend = burn_autodiff::Autodiff<MyBackend>;
+
+impl<B> Resource for AMRessource<B>
+where
+    B: AutodiffBackend + Send + Sync + 'static,
+    AgentManager<B>: Send + Sync,
+{
+}
 
 pub struct PipePlugin;
 
@@ -40,27 +64,20 @@ pub struct BrainPlugin;
 
 impl Plugin for BrainPlugin {
     fn build(&self, app: &mut App) {
-        app.insert_non_send_resource(AMRessource::new());
+        let device = WgpuDevice::default();
+
+        let device: <MyAutodiffBackend as burn::tensor::backend::Backend>::Device =
+            Default::default();
+
+        let resource = AMRessource::<MyAutodiffBackend> {
+            agent_manager: AgentManager::new(device.clone()),
+        };
+
+        app.insert_non_send_resource(ressource);
         //app.add_observer(attach_episodes);
         app.add_systems(FixedUpdate, (think).in_set(player::GameSets::AI));
     }
 }
-
-pub struct AMRessource {
-    agentManager: AgentManager<B>,
-}
-
-impl AMRessource {
-    pub fn new() -> Self {
-        let device = WgpuDevice::default();
-
-        Self {
-            agentManager: AgentManager::new(),
-        }
-    }
-}
-
-unsafe impl Sync for AMRessource {}
 
 #[derive(Component)]
 pub struct Pipe;
@@ -160,22 +177,20 @@ fn despawn_pipes(mut commands: Commands, pipes: Query<(Entity, &Transform), With
     }
 }
 
-fn bird_bind_agent(query: Query<Entity, Added<Bird>>,  mut resam:  NonSend<AgentManager>,) {
+/* fn bird_bind_agent(query: Query<Entity, Added<Bird>>,  mut resam:  NonSend<AMRessource<B: AutodiffBackend>>,) {
     for entity in &query {
         println!("Enemy spawned: {:?}", entity);
     }
-}
-
-
-
+} */
 
 //  Birds think .  what will you have after 500 years ?
 pub fn think(
     mut commands: Commands,
-    brain: NonSend<AgentManager>,
+
     birds: Query<(&Transform, &Velocity, Entity), (With<Bird>, Without<Player>)>,
     pipe_tops: Query<&GlobalTransform, With<PipeTop>>,
     pipe_bottoms: Query<&GlobalTransform, With<PipeBottom>>,
+    brain: NonSend<AMRessource<B>>,
 ) {
     //collect GameState for each bird
     for (transform, velocity, entity) in &birds {
@@ -207,8 +222,8 @@ pub fn think(
         };
         //do the actual thinking
 
-        let tensor = state.to_tensor(&device);
-        let tensor = brain.model.forward(tensor);
+        /* let tensor = state.to_tensor(&device);
+        let tensor = brain.model.forward(tensor); */
 
         //record game state
         // in your game update system:

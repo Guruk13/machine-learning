@@ -16,9 +16,11 @@ tracing = { version = "0.1", features = [
     "max_level_debug",
     "release_max_level_warn",
 ] }
-burn-wgpu = "0.17"
-burn = "0.17"
+
+
+burn = { version = "0.17", features = ["autodiff", "wgpu"] }
 rand = "0.10.0"
+
 
 
 # Idiomatic Bevy code often triggers these lints, and the CI workflow treats them as errors.
