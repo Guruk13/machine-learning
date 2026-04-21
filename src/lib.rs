@@ -73,9 +73,9 @@ impl Plugin for BrainPlugin {
         };
 
         app.insert_non_send_resource(ressource);
-        //app.add_observer(attach_episodes);
         app.add_systems(Update , bird_alive_reward);
         app.add_observer(bird_death_reward);
+        app.add_observer(bird_pass_reward);
 
 
         app.add_systems(Update, bird_bind_agent);
@@ -186,6 +186,8 @@ fn bird_bind_agent(
     query: Query<Entity, Added<Bird>>,
     mut am_ressource: NonSendMut<AMRessource<MyAutodiffBackend>>,
 ) {
+    
+    //warn!("Nuée de : {:?}",&query.iter().count());
     for entity in &query {
         
         am_ressource.agent_manager.bind_agent(entity.index().to_string(), 0.99, 1e-4);
@@ -200,13 +202,15 @@ fn bird_bind_agent(
     birds: Query< (Entity, &GameStateFeatures, &PartialReward, Option<&Dead>), (With<Bird>, Without<Player>)>,
     mut am_ressource: NonSendMut<AMRessource<MyAutodiffBackend>>,
 ) {
+
+    warn!( "Look mom , no .... : {:?}",query.iter().count);
     for (entity,&state, &reward, dead) in &birds {
         let action: Action = am_ressource.agent_manager.select_action(entity.index().to_string(), &state);
 
         match action {
             Action::DoNothing => { /*  not because you pelican means you pelishould */ }
             Action::Jump => {
-                //warn!( "Look mom , no .... : {:?}",entity.index().to_string());
+                warn!( "Look mom , no .... : {:?}",entity.index().to_string());
                 commands.trigger(BirdJump(entity));
             }
         }
@@ -214,11 +218,11 @@ fn bird_bind_agent(
         // Small bonus for staying near the centre of the gap
         let gap_centre_penalty = (state.next_pipe_top_y - state.next_pipe_bottom_y).abs() * 0.001;
         let reward = reward - gap_centre_penalty; 
-        am_ressource.agent_manager.record_step(entity.index().to_string(), &state, action, reward);
+        am_ressource.agent_manager.record_step(entity.index().to_string(), state, action, reward);
         commands.entity(entity).remove::<PartialReward>();
 
         match dead {
-            Some(dead) => {
+            Some(Dead) => {
                 am_ressource.agent_manager.bird_died(entity.index().to_string());
                 commands.entity(entity).remove::<Dead>();
             },  

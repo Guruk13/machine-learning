@@ -1,4 +1,4 @@
-use bevy::prelude::Component;
+use bevy::{ecs::error::warn, prelude::Component};
 use burn::{
     module::Module,
     nn::{Linear, LinearConfig, Relu},
@@ -7,6 +7,7 @@ use burn::{
     tensor::{Tensor, activation::softmax, backend::AutodiffBackend},
 };
 pub mod multiagent;
+use bevy::prelude::warn;
 
 use burn::tensor::ElementConversion;
 // ─────────────────────────────────────────────
@@ -111,9 +112,9 @@ impl<B: AutodiffBackend> FlappyGradientAgent<B> {
     // ── episode bookkeeping ────────────────────────────────────────────────
 
     /// Call once per game tick after the environment returns a reward.
-    pub fn record_step(&mut self, state: &GameStateFeatures, action: Action, reward: f32) {
+    pub fn record_step(&mut self, state: GameStateFeatures, action: Action, reward: f32) {
         self.episode.push(EpisodeStep {
-            state.clone(),
+            state,
             action,
             reward,
         });
@@ -139,6 +140,7 @@ impl<B: AutodiffBackend> FlappyGradientAgent<B> {
         // ── 3b. Normalise returns (stabilises training) ───────────────────
         let mean: f32 = returns.iter().sum::<f32>() / n as f32;
         let var: f32 = returns.iter().map(|r| (r - mean).powi(2)).sum::<f32>() / n as f32;
+        warn!( "Sad {:?}",var);
         let std = var.sqrt() + 1e-8;
         let returns: Vec<f32> = returns.iter().map(|r| (r - mean) / std).collect();
 

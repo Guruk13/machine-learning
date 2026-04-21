@@ -15,7 +15,6 @@ use flappy_bird::*;
 use crate::player::*;
 use player::GameSets;
 
-
 fn main() -> AppExit {
     App::new()
         .init_resource::<Score>()
@@ -135,22 +134,23 @@ fn check_in_bounds(
     birds: Query<(Entity, &Transform, Has<Player>), With<Bird>>,
     mut commands: Commands,
 ) {
+    let wheelie_bounds = false;
     // check each bird
     for (entity, transform, is_player) in birds.iter() {
-        if transform.translation.y < -CANVAS_SIZE.y / 2.0 - PLAYER_SIZE
-            || transform.translation.y > CANVAS_SIZE.y / 2.0 + PLAYER_SIZE
-        {
-            if is_player {
-                //commands.trigger(EndGame);
-            } else {
-                //commands.trigger(BirdDeath { bird: entity });
-                
+        if !wheelie_bounds {
+            if transform.translation.y < -CANVAS_SIZE.y / 2.0 - PLAYER_SIZE
+                || transform.translation.y > CANVAS_SIZE.y / 2.0 + PLAYER_SIZE
+            {
+                if is_player {
+                    commands.trigger(EndGame);
+                } else {
+                    commands.trigger(BirdDeath { bird: entity });
+                }
             }
-        }else{
-            
-        }
-        if transform.translation.y < -CANVAS_SIZE.y / 2.0 - PLAYER_SIZE{
-            commands.trigger(BirdJump(entity));
+        } else {
+            if transform.translation.y < -CANVAS_SIZE.y / 2.0 - PLAYER_SIZE {
+                commands.trigger(BirdJump(entity));
+            }
         }
     }
 }
@@ -175,7 +175,7 @@ fn respawn_on_endgame(
 
 fn spawn_birds(mut commands: Commands, asset_server: Res<AssetServer>) {
     for _n in 0..5 {
-        commands.spawn(Bird::new(&*asset_server, true));
+        commands.spawn(Bird::new(&*asset_server, false));
     }
 }
 
@@ -234,7 +234,7 @@ fn check_collisions(
             );
 
             if bird_collider.intersects(&gap_collider) {
-                commands.trigger(ScorePoint);
+                commands.trigger(ScorePoint { bird: bird.1 });
                 //commands.entity(entity).despawn();
             }
         }
@@ -269,8 +269,9 @@ fn enforce_bird_direction(players: Query<(&mut Transform, &Velocity), With<Bird>
 }
 
 fn bird_respawn(entity_event: On<BirdDeath>, mut commands: Commands) {
+    //warn!( "Sad {:?}",entity_event.bird.index().to_string());
     commands.entity(entity_event.bird).insert((
-        Transform::from_xyz(-CANVAS_SIZE.x / 4.0, rand::random_range(0..=5)as f32, 1.0),
+        Transform::from_xyz(-CANVAS_SIZE.x / 4.0, rand::random_range(0..=5) as f32, 1.0),
         Velocity(0.),
     ));
 }
@@ -280,6 +281,3 @@ fn on_bird_jump(event: On<BirdJump>, mut velocities: Query<&mut Velocity, With<B
         velocity.0 = 400.; // this is the ONE place that knows how jumping works
     }
 }
-
-
-

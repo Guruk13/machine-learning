@@ -3,6 +3,7 @@ use super::FlappyGradientAgent;
 use super::GameStateFeatures;
 use burn::tensor::backend::AutodiffBackend;
 use std::collections::HashMap;
+use burn::backend::wgpu::{Wgpu, WgpuDevice};
 
 //following traits are not really usefull except for bind agent which *may* be influenced by the way you implement the backend , other than that there's not much to keep
 
@@ -12,6 +13,7 @@ use std::collections::HashMap;
 
 pub struct AgentManager<B: AutodiffBackend> {
     pub inner: HashMap<String, FlappyGradientAgent<B>>,
+    solo: FlappyGradientAgent<B>,
     device: B::Device,
 }
 
@@ -21,6 +23,7 @@ impl<B: AutodiffBackend> AgentManager<B> {
         Self {
             device: device,
             inner: HashMap::new(),
+            solo: FlappyGradientAgent::new(device.clone(), 0.99, 1e-4)
         }
     }
 
@@ -41,7 +44,7 @@ impl<B: AutodiffBackend> AgentManager<B> {
     pub fn record_step(
         &mut self,
         key: String,
-        state: &GameStateFeatures,
+        state: GameStateFeatures,
         action: Action,
         reward: f32,
     ) {
