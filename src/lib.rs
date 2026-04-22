@@ -203,9 +203,9 @@ fn bird_bind_agent(
     mut am_ressource: NonSendMut<AMRessource<MyAutodiffBackend>>,
 ) {
 
-    warn!( "Look mom , no .... : {:?}",query.iter().count);
+    //warn!( "Look mom , no .... : {:?}",query.iter().count);
     for (entity,&state, &reward, dead) in &birds {
-        let action: Action = am_ressource.agent_manager.select_action(entity.index().to_string(), &state);
+        let action: Action = am_ressource.agent_manager.select_action(entity.index().to_string().to_string(), &state);
 
         match action {
             Action::DoNothing => { /*  not because you pelican means you pelishould */ }
@@ -223,7 +223,7 @@ fn bird_bind_agent(
 
         match dead {
             Some(Dead) => {
-                am_ressource.agent_manager.bird_died(entity.index().to_string());
+                am_ressource.agent_manager.bird_died(entity.index().to_string().to_string());
                 commands.entity(entity).remove::<Dead>();
             },  
             None        => {/* goes on */},           

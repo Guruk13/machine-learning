@@ -13,7 +13,6 @@ use burn::backend::wgpu::{Wgpu, WgpuDevice};
 
 pub struct AgentManager<B: AutodiffBackend> {
     pub inner: HashMap<String, FlappyGradientAgent<B>>,
-    solo: FlappyGradientAgent<B>,
     device: B::Device,
 }
 
@@ -23,7 +22,6 @@ impl<B: AutodiffBackend> AgentManager<B> {
         Self {
             device: device,
             inner: HashMap::new(),
-            solo: FlappyGradientAgent::new(device.clone(), 0.99, 1e-4)
         }
     }
 
