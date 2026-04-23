@@ -1,9 +1,9 @@
 use super::Action;
 use super::FlappyGradientAgent;
 use super::GameStateFeatures;
+use burn::backend::wgpu::{Wgpu, WgpuDevice};
 use burn::tensor::backend::AutodiffBackend;
 use std::collections::HashMap;
-use burn::backend::wgpu::{Wgpu, WgpuDevice};
 
 //following traits are not really usefull except for bind agent which *may* be influenced by the way you implement the backend , other than that there's not much to keep
 

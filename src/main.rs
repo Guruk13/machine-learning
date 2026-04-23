@@ -15,11 +15,6 @@ use flappy_bird::*;
 use crate::player::*;
 use player::GameSets;
 
-
-
-
-
-
 fn main() -> AppExit {
     App::new()
         .init_resource::<Score>()
@@ -179,7 +174,7 @@ fn respawn_on_endgame(
 }
 
 fn spawn_birds(mut commands: Commands, asset_server: Res<AssetServer>) {
-    for _n in 0..1 {
+    for _n in 0..5 {
         commands.spawn(Bird::new(&*asset_server, false));
     }
 }

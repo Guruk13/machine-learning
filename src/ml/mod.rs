@@ -1,4 +1,4 @@
-use bevy::{ecs::error::warn, prelude::Component};
+use bevy::prelude::Component;
 use burn::{
     module::Module,
     nn::{Linear, LinearConfig, Relu},
@@ -8,37 +8,9 @@ use burn::{
 };
 pub mod multiagent;
 use bevy::prelude::warn;
+pub mod pruner;
 
 use burn::tensor::ElementConversion;
-
-use burn::module::Param;
-
-use std::time::{Duration, Instant};
-
-struct Debounce {
-    last_called: Option<Instant>,
-    delay: Duration,
-}
-
-impl Debounce {
-    fn new(ms: u64) -> Self {
-        Self {
-            last_called: None,
-            delay: Duration::from_millis(ms),
-        }
-    }
-
-    fn should_run(&mut self) -> bool {
-        let now = Instant::now();
-        match self.last_called {
-            Some(last) if now.duration_since(last) < self.delay => false,
-            _ => {
-                self.last_called = Some(now);
-                true
-            }
-        }
-    }
-}
 
 // ─────────────────────────────────────────────
 // 1.  POLICY NETWORK
@@ -97,7 +69,6 @@ pub struct FlappyGradientAgent<B: AutodiffBackend> {
     episode: Vec<EpisodeStep>,
     /// Discount factor γ
     pub gamma: f32,
-    grad_debounce: Debounce,
 }
 
 impl<B: AutodiffBackend> FlappyGradientAgent<B> {
@@ -112,7 +83,6 @@ impl<B: AutodiffBackend> FlappyGradientAgent<B> {
             device,
             episode: Vec::new(),
             gamma,
-            grad_debounce: Debounce::new(2000),
         }
     }
 
@@ -189,10 +159,8 @@ impl<B: AutodiffBackend> FlappyGradientAgent<B> {
 
         // ── 3e. Forward pass → log-probs of taken actions ─────────────────
         let probs = self.flappy.forward(states); // [n, 2]
-
         // log(probs) — add small ε for numerical stability
         let log_probs = (probs + 1e-8f32).log();
-
         // Gather log_prob for the action that was actually taken.
         // burn doesn't have a gather shorthand on 2-D so we build a mask.
         let action_mask: Vec<f32> = (0..n)
@@ -222,15 +190,14 @@ impl<B: AutodiffBackend> FlappyGradientAgent<B> {
         let loss_scalar: f32 = loss.clone().into_scalar().elem::<f32>();
         let grads = loss.backward();
         let grads = GradientsParams::from_grads(grads, &self.flappy);
-        if self.grad_debounce.should_run() {
+        /*         if self.grad_debounce.should_run() {
             debug_grads(&self.flappy, &grads);
-        }
+        } */
 
         self.flappy = self.optimizer.step(1e-3, self.flappy.clone(), grads);
 
         // ── 3i. Reset episode buffer ──────────────────────────────────────
         self.episode.clear();
-
         loss_scalar
     }
 
@@ -281,54 +248,6 @@ impl Default for RewardPrizes {
             dying: -1.0,
             pipe_cleared: 1.0,
             alive: 0.01,
-        }
-    }
-}
-
-fn debug_grads<B: AutodiffBackend>(model: &FlappyNet<B>, grads: &GradientsParams) {
-    /*     let layers: [(&str, &Linear<B>); 3] = [
-        ("linear1", &model.linear1),
-        ("linear2", &model.linear2),
-        ("linear3", &model.linear3),
-    ]; */
-    let layers: Vec<(&str, &Param<Tensor<B, 2>>)> = vec![
-        ("linear1.weight", &model.linear1.weight),
-        ("linear2.weight", &model.linear2.weight),
-        ("linear3.weight", &model.linear3.weight),
-    ];
-
-    for (name, layer) in layers {
-        // Extract param ID from the weight tensor first
-        let weight_id = layer.id;
-        match grads.get(weight_id) {
-            Some(grad) => {
-                let data = grad.into_data();
-                let values: Vec<f32> = data.convert::<f32>().to_vec().unwrap();
-
-                let max = values.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
-                let min = values.iter().cloned().fold(f32::INFINITY, f32::min);
-                let mean = values.iter().sum::<f32>() / values.len() as f32;
-                warn!(
-                    "Grad [{}] min={:.6} max={:.6} mean={:.6}",
-                    name, min, max, mean
-                );
-            }
-            None => warn!("Grad [{}.weight] => NONE (no gradient flowed!)", name),
-        }
-        // Biases — 1D
-        let biases: Vec<(&str, &Option<Param<Tensor<B, 1>>>)> = vec![
-            ("linear1.bias", &model.linear1.bias),
-            ("linear2.bias", &model.linear2.bias),
-            ("linear3.bias", &model.linear3.bias),
-        ];
-
-        for (name, maybe_bias) in biases {
-            if let Some(bias) = maybe_bias {
-                match grads.get(bias.id) {
-                    Some(grad) => warn!("Grad [{}] bias=[{}] }", name, grad.into_data()),
-                    None => warn!("Grad [{}] => NONE", name),
-                }
-            }
         }
     }
 }
