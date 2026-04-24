@@ -1,0 +1,90 @@
+toolbox : things i saw but can't use and store somewhere to spare claude tokens // could be useful someday
+/* fn debug_grads<B: AutodiffBackend>(model: &FlappyNet<B>, grads: &GradientsParams) {
+    /*     let layers: [(&str, &Linear<B>); 3] = [
+        ("linear1", &model.linear1),
+        ("linear2", &model.linear2),
+        ("linear3", &model.linear3),
+    ]; */
+    let layers: Vec<(&str, &Param<Tensor<B, 2>>)> = vec![
+        ("linear1.weight", &model.linear1.weight),
+        ("linear2.weight", &model.linear2.weight),
+        ("linear3.weight", &model.linear3.weight),
+    ];
+
+    for (name, layer) in layers {
+        // Extract param ID from the weight tensor first
+        let weight_id = layer.id;
+
+        match grads.get::<B, 2>(weight_id) {
+
+            Some(grad) => {
+
+
+                let data = grad.into_data();
+                let values: Vec<f32> = data.convert::<f32>().to_vec().unwrap();
+
+                let max = values.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+                let min = values.iter().cloned().fold(f32::INFINITY, f32::min);
+                let mean = values.iter().sum::<f32>() / values.len() as f32;
+                warn!(
+                    "Grad [{}] min={:.6} max={:.6} mean={:.6}",
+                    name, min, max, mean
+                );
+            }
+            None => warn!("no weight "),
+        }
+/*         // Biases — 1D
+        let biases: Vec<(&str, &Option<Param<Tensor<B, 1>>>)> = vec![
+            ("linear1.bias", &model.linear1.bias),
+            ("linear2.bias", &model.linear2.bias),
+            ("linear3.bias", &model.linear3.bias),
+        ];
+
+        for (name, maybe_bias) in biases {
+            if let Some(bias) = maybe_bias {
+                match grads.get::<B, 1>(bias.id) {
+                    Some(grad) => {
+                        let data = grad.into_data();
+                        let values: Vec<f32> = data.convert::<f32>().to_vec().unwrap();
+
+                        let max = values.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+                        let min = values.iter().cloned().fold(f32::INFINITY, f32::min);
+                        let mean = values.iter().sum::<f32>() / values.len() as f32;
+                        warn!(
+                            "Grad [{}] min={:.6} max={:.6} mean={:.6}",
+                            name, min, max, mean
+                        );
+                    }
+                    None => warn!("no bias )"),
+                }
+            }
+        } */
+    }
+}
+ */
+
+
+ /* struct Debounce {
+    last_called: Option<Instant>,
+    delay: Duration,
+}
+
+impl Debounce {
+    fn new(ms: u64) -> Self {
+        Self {
+            last_called: None,
+            delay: Duration::from_millis(ms),
+        }
+    }
+
+    fn should_run(&mut self) -> bool {
+        let now = Instant::now();
+        match self.last_called {
+            Some(last) if now.duration_since(last) < self.delay => false,
+            _ => {
+                self.last_called = Some(now);
+                true
+            }
+        }
+    }
+} */

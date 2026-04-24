@@ -1,16 +1,18 @@
 use bevy::prelude::Component;
 use burn::{
-    module::Module,
+    module::{Module, ModuleMapper, ParamId},
     nn::{Linear, LinearConfig, Relu},
     optim::{Adam, AdamConfig, GradientsParams, Optimizer, adaptor::OptimizerAdaptor},
     prelude::Backend,
-    tensor::{Tensor, activation::softmax, backend::AutodiffBackend},
+    tensor::{Distribution, Tensor, activation::softmax, backend::AutodiffBackend},
 };
 pub mod multiagent;
 use bevy::prelude::warn;
 pub mod pruner;
+use crate::pruner::normalised_entropy;
 
 use burn::tensor::ElementConversion;
+pub const OPTIMIZER_EPSILON: f32 = 1e-7;
 
 // ─────────────────────────────────────────────
 // 1.  POLICY NETWORK
@@ -61,28 +63,32 @@ pub struct EpisodeStep {
 // ─────────────────────────────────────────────
 // 3.  AGENT
 // ─────────────────────────────────────────────
+
 pub struct FlappyGradientAgent<B: AutodiffBackend> {
     pub flappy: FlappyNet<B>,
-    optimizer: OptimizerAdaptor<Adam, FlappyNet<B>, B>,
+    pub optimizer: OptimizerAdaptor<Adam, FlappyNet<B>, B>,
     device: B::Device,
     /// Steps collected in the *current* episode for this agent.
-    episode: Vec<EpisodeStep>,
+    pub episode: Vec<EpisodeStep>,
     /// Discount factor γ
     pub gamma: f32,
+    entropy_sum: f32,
+    pub lr: f64,
 }
 
 impl<B: AutodiffBackend> FlappyGradientAgent<B> {
     pub fn new(device: B::Device, gamma: f32, lr: f64) -> Self {
         let flappy = FlappyNet::new(&device);
 
-        let optimizer = AdamConfig::new().with_epsilon(1e-7).init();
-
+        let optimizer = get_optimizer();
         Self {
             flappy,
             optimizer,
             device,
             episode: Vec::new(),
-            gamma,
+            gamma, // how much it cares for future rewards
+            lr,    //aka learning rate
+            entropy_sum: 0.0,
         }
     }
 
@@ -91,10 +97,20 @@ impl<B: AutodiffBackend> FlappyGradientAgent<B> {
     /// Sample an action from the flappy distribution.
     /// Returns (action, log_prob) — log_prob not needed at call-site but
     /// useful for debugging / entropy logging.
-    pub fn select_action(&self, state: &GameStateFeatures) -> Action {
+    pub fn select_action(&mut self, state: &GameStateFeatures) -> Action {
         let input = self.state_to_tensor(&state); // [1, 6]
         // Run in no-grad context — we only need probabilities here.
         let probs = self.flappy.forward(input); // [1, 2]
+        let data = probs.clone().to_data();
+        let raw: Vec<f32> = data.iter::<f32>().collect();
+
+        // Average normalised entropy over the batch.
+        let entropy_sum: f32 = raw
+            .chunks(2) // each chunk is one row: [p_nothing, p_jump]
+            .map(|row| normalised_entropy(row))
+            .sum();
+
+        self.entropy_sum += entropy_sum;
 
         // Extract the probability of Jump (index 1).
         let p_jump: f32 = probs
@@ -194,7 +210,7 @@ impl<B: AutodiffBackend> FlappyGradientAgent<B> {
             debug_grads(&self.flappy, &grads);
         } */
 
-        self.flappy = self.optimizer.step(1e-3, self.flappy.clone(), grads);
+        self.flappy = self.optimizer.step(self.lr, self.flappy.clone(), grads);
 
         // ── 3i. Reset episode buffer ──────────────────────────────────────
         self.episode.clear();
@@ -205,6 +221,21 @@ impl<B: AutodiffBackend> FlappyGradientAgent<B> {
 
     fn state_to_tensor(&self, s: &GameStateFeatures) -> Tensor<B, 2> {
         Tensor::<B, 1>::from_floats(s.to_array().as_slice(), &self.device).reshape([1, 6])
+    }
+    // ─────────────────────────────────────────────────────────────────────────────
+    // 6.  WEIGHT PERTURBATION  (for replacement)
+    // ─────────────────────────────────────────────────────────────────────────────
+
+    /// Add Gaussian noise with std `scale` to every parameter of `net`.
+    /// This gives a slightly randomised child that still starts near the parent.
+    // PerturbMapper is here to edit weights (2D) and biases(1D) , hence the generic D
+
+    pub fn perturb_weights(&mut self, scale: f32) -> FlappyNet<B> {
+        let mut mapper = PerturbMapper {
+            scale,
+            device: self.device.clone(),
+        };
+        self.flappy.clone().map(&mut mapper)
     }
 }
 
@@ -249,5 +280,51 @@ impl Default for RewardPrizes {
             pipe_cleared: 1.0,
             alive: 0.01,
         }
+    }
+}
+
+/** In ML, gamma (γ) is the discount factor used in reinforcement learning (RL).
+ * In ML, gamma (γ) is the discount factor used in reinforcement learning (RL).
+ * It's a value between 0 and 1 that determines how much an agent values future rewards relative to immediate rewards.
+The Bellman Equation Context
+Gamma appears in the return (cumulative reward) calculation:
+G_t = r_t + γ·r_{t+1} + γ²·r_{t+2} + γ³·r_{t+3} + ...
+What the Value Means
+GammaBehaviorγ = 0Fully myopic — only cares about the immediate next rewardγ →
+1Fully far-sighted — values future rewards almost as much as current onesγ = 0.99Common default — slight preference for sooner rewards */
+
+pub struct AgentDefault {
+    pub gamma: f32,
+    pub learning_rate: f64,
+}
+
+impl Default for AgentDefault {
+    fn default() -> Self {
+        Self {
+            gamma: 0.99,
+            learning_rate: 1e-3,
+        }
+    }
+}
+
+pub fn get_optimizer<B: AutodiffBackend>() -> OptimizerAdaptor<Adam, FlappyNet<B>, B> {
+    AdamConfig::new().with_epsilon(OPTIMIZER_EPSILON).init()
+}
+
+struct PerturbMapper<B: Backend> {
+    scale: f32,
+    device: B::Device,
+}
+
+// useful for per weight , per Dimmension edition (_id)
+impl<B: Backend> ModuleMapper<B> for PerturbMapper<B> {
+    fn map_float<const D: usize>(&mut self, _id: ParamId, tensor: Tensor<B, D>) -> Tensor<B, D> {
+        let shape = tensor.shape();
+        let noise = Tensor::<B, D>::random(
+            shape,
+            Distribution::Normal(0.0, self.scale as f64),
+            &self.device,
+        );
+        tensor + noise
     }
 }

@@ -192,7 +192,7 @@ fn think(
     for (entity, &state, &reward, dead) in &birds {
         let action: Action = am_ressource
             .agent_manager
-            .select_action(entity.index().to_string().to_string(), &state);
+            .select_action(entity.index().index(), &state);
 
         match action {
             Action::DoNothing => { /*  not because you pelican means you pelishould */ }
@@ -208,14 +208,12 @@ fn think(
         //warn!( "Sad {:?}",state);
         am_ressource
             .agent_manager
-            .record_step(entity.index().to_string(), state, action, reward);
+            .record_step(entity.index().index(), state, action, reward);
         commands.entity(entity).remove::<PartialReward>();
 
         match dead {
             Some(Dead) => {
-                am_ressource
-                    .agent_manager
-                    .bird_died(entity.index().to_string().to_string());
+                am_ressource.agent_manager.bird_died(entity.index().index());
                 commands.entity(entity).remove::<Dead>();
             }
             None => { /* goes on */ }
