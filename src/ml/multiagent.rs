@@ -61,6 +61,7 @@ impl<B: AutodiffBackend> AgentManager<B> {
             episode: Vec::new(),
             gamma: AgentDefault::default().gamma,
             lr: AgentDefault::default().learning_rate,
+            entropy_sum:0.0
         };
         self.inner.insert(down, newagent);
         self

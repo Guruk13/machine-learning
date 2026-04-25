@@ -9,6 +9,7 @@ use burn::{
 pub mod multiagent;
 use bevy::prelude::warn;
 pub mod pruner;
+use crate::pruner::AgentStats;
 use crate::pruner::normalised_entropy;
 
 use burn::tensor::ElementConversion;
@@ -74,6 +75,7 @@ pub struct FlappyGradientAgent<B: AutodiffBackend> {
     pub gamma: f32,
     entropy_sum: f32,
     pub lr: f64,
+    pub stats: AgentStats,
 }
 
 impl<B: AutodiffBackend> FlappyGradientAgent<B> {
@@ -89,6 +91,7 @@ impl<B: AutodiffBackend> FlappyGradientAgent<B> {
             gamma, // how much it cares for future rewards
             lr,    //aka learning rate
             entropy_sum: 0.0,
+            stats: AgentStats::new(),
         }
     }
 

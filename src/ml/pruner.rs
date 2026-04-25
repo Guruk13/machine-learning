@@ -27,14 +27,9 @@
 
 use std::collections::HashMap;
 
-use burn::{
-    module::Module,
-    nn::{Linear, LinearConfig},
-    prelude::Backend,
-    tensor::{Distribution, Tensor, backend::AutodiffBackend},
-};
+use burn::tensor::backend::AutodiffBackend;
 
-use crate::{Action, FlappyGradientAgent, FlappyNet, GameStateFeatures};
+use crate::{FlappyGradientAgent, ml::EpisodeStep};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 1.  ENTROPY HELPERS
@@ -72,8 +67,6 @@ pub fn normalised_entropy(probs: &[f32]) -> f32 {
 /// Rolling statistics for one agent.
 #[derive(Debug, Clone)]
 pub struct AgentStats {
-    pub agent_id: usize,
-
     // ── Entropy tracking ──────────────────────────────────────────────────
     /// EMA of normalised policy entropy (α = 0.1 by default).
     pub entropy_ema: f32,
@@ -91,9 +84,8 @@ pub struct AgentStats {
 }
 
 impl AgentStats {
-    pub fn new(agent_id: usize) -> Self {
+    pub fn new() -> Self {
         Self {
-            agent_id,
             entropy_ema: 1.0, // start at max entropy (uninitialised)
             entropy_violation_streak: 0,
             score_ema: 0.0,
@@ -106,12 +98,8 @@ impl AgentStats {
     ///
     /// * `raw_entropy` – normalised entropy ∈ [0, 1] measured over the episode
     /// * `episode_return` – sum of undiscounted rewards for the episode
-    pub fn update(&mut self, raw_entropy: f32, episode_return: f32, cfg: &PruningConfig) {
+    pub fn update(&mut self, episode_return: Vec<EpisodeStep>, cfg: &PruningConfig) {
         self.episodes += 1;
-
-        // Entropy EMA
-        self.entropy_ema =
-            cfg.entropy_alpha * raw_entropy + (1.0 - cfg.entropy_alpha) * self.entropy_ema;
 
         // Score EMA
         self.score_ema =
@@ -216,13 +204,10 @@ use burn::tensor::ElementConversion;
 /// `states` – raw feature rows, each `[6]`; stacked into `[n, 6]`.
 ///
 /// Returns a value in [0, 1].
-pub fn measure_policy_entropy<B: Backend>(agent: FlappyGradientAgent<B>) -> f32 {
-    if states.is_empty() {
-        return 1.0; // undefined; treat as maximum entropy
-    }
-
-    let n = states.len();
-    entropy_sum / n as f32
+///
+pub fn measure_policy_entropy<B: AutodiffBackend>(agent: &FlappyGradientAgent<B>) -> f32 {
+    let n = agent.episode.len();
+    agent.entropy_sum / n as f32
 }
 
 // a sum of entropy for a model. is defined within a trait since it comes attach itself to a forward function to reduce
@@ -237,13 +222,10 @@ pub trait EntropyTracker {
 /// Manages a population of agents: tracks their stats, fires pruning, and
 /// replaces weak agents with perturbed copies of the best survivor.
 pub struct PopulationManager<B: AutodiffBackend> {
-    pub agents: Vec<FlappyGradientAgent<B>>,
-    pub stats: Vec<AgentStats>,
+    //pub agents: Vec<FlappyGradientAgent<B>>,
+    //pub stats: Vec<AgentStats>,
     pub cfg: PruningConfig,
     device: B::Device,
-    /// Hyperparams forwarded when constructing replacement agents.
-    gamma: f32,
-    lr: f64,
 }
 
 impl<B: AutodiffBackend> PopulationManager<B>
@@ -282,26 +264,15 @@ where
     /// * `episode_returns` – total undiscounted return per agent.
     ///
     /// Returns the indices of agents that need to be pruned and replaced.
-    pub fn end_of_episode(
-        &mut self,
-        episode_states: &[Vec<GameStateFeatures>],
-        episode_returns: &[f32],
-    ) -> Vec<usize> {
-        let n = self.agents.len();
-        assert_eq!(episode_returns.len(), n);
+    pub fn spot_entropicishes(self, agents: HashMap<u32, FlappyGradientAgent<B>>) -> Vec<usize> {
+        let n = agents.len();
 
         // ── Measure entropy for each agent ────────────────────────────────
-        for i in 0..n {
-            let entropy = if i < episode_states.len() && !episode_states[i].is_empty() {
-                measure_policy_entropy(&self.agents[i].flappy, &episode_states[i], &self.device)
-            } else {
-                // Fallback: probe the network at a fixed canonical state.
-                let probe = vec![GameStateFeatures::default()];
-                measure_policy_entropy(&self.agents[i].flappy, &probe, &self.device)
-            };
-
-            self.stats[i].update(entropy, episode_returns[i], &self.cfg);
-        }
+        agents.values().for_each(|agent: &FlappyGradientAgent<B>| {
+            let entropy = measure_policy_entropy(agent);
+            agent.stats.entropy_ema = self.cfg.entropy_alpha * entropy
+                + (1.0 - self.cfg.entropy_alpha) * agent.stats.entropy_ema;
+        });
 
         // ── Identify prunable agents ──────────────────────────────────────
         let to_prune: Vec<usize> = (0..n)
