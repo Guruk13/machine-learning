@@ -173,7 +173,7 @@ fn bird_bind_agent(
     for entity in &query {
         am_ressource
             .agent_manager
-            .bind_agent(entity.index().to_string(), 0.99, 1e-4);
+            .bind_agent(entity.index().index());
         //warn!("Debout , joli bouton d'or : {:?}",entity.index().to_string());
     }
 }
@@ -192,7 +192,7 @@ fn think(
     for (entity, &state, &reward, dead) in &birds {
         let action: Action = am_ressource
             .agent_manager
-            .select_action(entity.index().index(), &state);
+            .select_action(&entity.index().index(), &state);
 
         match action {
             Action::DoNothing => { /*  not because you pelican means you pelishould */ }

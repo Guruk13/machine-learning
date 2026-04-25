@@ -25,11 +25,10 @@
 //    of the best-scoring survivor, giving it a fresh optimiser state while
 //    keeping useful learned weights.
 
-use std::collections::HashMap;
-
 use burn::tensor::backend::AutodiffBackend;
 
 use crate::{FlappyGradientAgent, ml::EpisodeStep};
+use std::{collections::HashMap, panic};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 1.  ENTROPY HELPERS
@@ -65,7 +64,7 @@ pub fn normalised_entropy(probs: &[f32]) -> f32 {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// Rolling statistics for one agent.
-#[derive(Debug, Clone)]
+#[derive(Debug, Copy, Clone)]
 pub struct AgentStats {
     // ── Entropy tracking ──────────────────────────────────────────────────
     /// EMA of normalised policy entropy (α = 0.1 by default).
@@ -98,9 +97,9 @@ impl AgentStats {
     ///
     /// * `raw_entropy` – normalised entropy ∈ [0, 1] measured over the episode
     /// * `episode_return` – sum of undiscounted rewards for the episode
-    pub fn update(&mut self, episode_return: Vec<EpisodeStep>, cfg: &PruningConfig) {
+    pub fn update(&mut self, episode: Vec<EpisodeStep>, cfg: &PruningConfig) {
         self.episodes += 1;
-
+        let episode_return: f32 = episode.iter().fold(0.0, |acc, x| acc + x.reward);
         // Score EMA
         self.score_ema =
             cfg.score_alpha * episode_return + (1.0 - cfg.score_alpha) * self.score_ema;
@@ -119,26 +118,6 @@ impl AgentStats {
             self.score_violation_streak = 0;
         } else {
             self.score_violation_streak += 1;
-        }
-    }
-
-    /// Returns `true` when this agent should be pruned.
-    pub fn should_prune(&self, cfg: &PruningConfig) -> bool {
-        // Need at least `patience` episodes before we prune.
-        if self.episodes < cfg.warmup_episodes {
-            return false;
-        }
-        self.entropy_violation_streak >= cfg.patience || self.score_violation_streak >= cfg.patience
-    }
-
-    /// Human-readable reason for pruning (for logging).
-    pub fn prune_reason(&self, cfg: &PruningConfig) -> &'static str {
-        if self.entropy_ema < cfg.entropy_floor {
-            "policy-collapsed (entropy too low)"
-        } else if self.entropy_ema > cfg.entropy_ceiling {
-            "policy-random (entropy too high)"
-        } else {
-            "score-stagnant (score EMA below floor)"
         }
     }
 }
@@ -197,8 +176,6 @@ impl Default for PruningConfig {
 // 4.  ENTROPY MEASUREMENT  (burn tensor → f32 slice)
 // ─────────────────────────────────────────────────────────────────────────────
 
-use burn::tensor::ElementConversion;
-
 /// Measure the average normalised entropy of `net` over a batch of states.
 ///
 /// `states` – raw feature rows, each `[6]`; stacked into `[n, 6]`.
@@ -219,38 +196,17 @@ pub trait EntropyTracker {
 // 5.  POPULATION MANAGER
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Manages a population of agents: tracks their stats, fires pruning, and
-/// replaces weak agents with perturbed copies of the best survivor.
-pub struct PopulationManager<B: AutodiffBackend> {
+/// Manages a population of agents: tracks their stats, flag them if entropicishes
+pub struct PopulationManager {
     //pub agents: Vec<FlappyGradientAgent<B>>,
     //pub stats: Vec<AgentStats>,
     pub cfg: PruningConfig,
-    device: B::Device,
 }
 
-impl<B: AutodiffBackend> PopulationManager<B>
-where
-    B::FloatElem: ElementConversion,
-{
-    pub fn new(
-        n_agents: usize,
-        device: B::Device,
-        gamma: f32,
-        lr: f64,
-        cfg: PruningConfig,
-    ) -> Self {
-        let agents: Vec<_> = (0..n_agents)
-            .map(|_| FlappyGradientAgent::new(device.clone(), gamma, lr))
-            .collect();
-        let stats: Vec<_> = (0..n_agents).map(AgentStats::new).collect();
-
+impl PopulationManager {
+    pub fn new() -> Self {
         Self {
-            agents,
-            stats,
-            cfg,
-            device,
-            gamma,
-            lr,
+            cfg: PruningConfig::default(),
         }
     }
 
@@ -264,75 +220,61 @@ where
     /// * `episode_returns` – total undiscounted return per agent.
     ///
     /// Returns the indices of agents that need to be pruned and replaced.
-    pub fn spot_entropicishes(self, agents: HashMap<u32, FlappyGradientAgent<B>>) -> Vec<usize> {
+    pub fn spot_entropicishes<B: AutodiffBackend>(
+        self,
+        mut agents: HashMap<u32, FlappyGradientAgent<B>>,
+    ) -> (Vec<u32>, u32) {
         let n = agents.len();
-
+        let mut to_prune: Vec<u32> = Vec::new();
         // ── Measure entropy for each agent ────────────────────────────────
-        agents.values().for_each(|agent: &FlappyGradientAgent<B>| {
-            let entropy = measure_policy_entropy(agent);
-            agent.stats.entropy_ema = self.cfg.entropy_alpha * entropy
-                + (1.0 - self.cfg.entropy_alpha) * agent.stats.entropy_ema;
-        });
-
-        // ── Identify prunable agents ──────────────────────────────────────
-        let to_prune: Vec<usize> = (0..n)
-            .filter(|&i| self.stats[i].should_prune(&self.cfg))
-            .collect();
-
-        if to_prune.is_empty() {
-            return vec![];
+        agents
+            .iter_mut()
+            .for_each(|(key, agent): (&u32, &mut FlappyGradientAgent<B>)| {
+                let entropy = measure_policy_entropy(agent);
+                agent.stats.entropy_ema = self.cfg.entropy_alpha * entropy
+                    + (1.0 - self.cfg.entropy_alpha) * agent.stats.entropy_ema;
+                if (self.should_prune(agent.stats)) {
+                    to_prune.push(*key);
+                };
+            });
+        let best_idx: u32;
+        if let Some((key, agent)) = agents
+            .iter()
+            .filter(|(key, agent)| !to_prune.contains(key))
+            .max_by(|(_, a), (_, b)| a.stats.score_ema.partial_cmp(&b.stats.score_ema).unwrap())
+        {
+            best_idx = *key;
+        } else {
+            panic!("no best agent ... ")
         }
 
-        // ── Find best survivor (highest score EMA, not in prune list) ─────
-        let best_idx = (0..n).filter(|i| !to_prune.contains(i)).max_by(|&a, &b| {
-            self.stats[a]
-                .score_ema
-                .partial_cmp(&self.stats[b].score_ema)
-                .unwrap()
-        });
-
         for &idx in &to_prune {
-            let reason = self.stats[idx].prune_reason(&self.cfg);
+            let reason = self.prune_reason(agents[&idx].stats);
             bevy::prelude::warn!(
                 "Agent {idx} pruned after {} episodes — {reason} \
                  (entropy_ema={:.3}, score_ema={:.3})",
-                self.stats[idx].episodes,
-                self.stats[idx].entropy_ema,
-                self.stats[idx].score_ema,
+                agents[&idx].stats.episodes,
+                agents[&idx].stats.entropy_ema,
+                agents[&idx].stats.score_ema,
             );
 
-            // Replace with a clone of the best survivor (or a fresh agent).
-            self.agents[idx] = match best_idx {
-                Some(src) => {
-                    let parent_net = self.agents[src].flappy.clone();
-                    let noisy_net = perturb_weights(parent_net, self.cfg.noise_scale, &self.device);
-                    FlappyGradientAgent::from_net(
-                        noisy_net,
-                        self.device.clone(),
-                        self.gamma,
-                        self.lr,
-                    )
-                }
-                None => {
-                    // Every agent is bad — restart from scratch.
-                    FlappyGradientAgent::new(self.device.clone(), self.gamma, self.lr)
-                }
-            };
-
             // Reset statistics for the new agent.
-            self.stats[idx] = AgentStats::new(idx);
         }
 
-        to_prune
+        (to_prune, best_idx)
     }
-
+    /// Returns `true` when an agent should be pruned.
+    pub fn should_prune(&self, agent_stats: AgentStats) -> bool {
+        // Need at least `patience` episodes before we prune.
+        if agent_stats.episodes < self.cfg.warmup_episodes {
+            return false;
+        }
+        agent_stats.entropy_violation_streak >= self.cfg.patience
+            || agent_stats.score_violation_streak >= self.cfg.patience
+    }
     // ── Convenience getters ───────────────────────────────────────────────
 
-    pub fn n_agents(&self) -> usize {
-        self.agents.len()
-    }
-
-    pub fn best_agent_idx(&self) -> usize {
+    /*pub fn best_agent_idx(&self) -> usize {
         (0..self.agents.len())
             .max_by(|&a, &b| {
                 self.stats[a]
@@ -341,24 +283,32 @@ where
                     .unwrap()
             })
             .unwrap_or(0)
-    }
+    }*/
 
     /// Print a summary table to stdout (useful during training).
-    pub fn print_stats(&self) {
+    /* pub fn print_stats(stats: AgentStats) {
         println!(
             "{:>5}  {:>8}  {:>12}  {:>10}  {:>10}",
             "agent", "episodes", "entropy_ema", "score_ema", "violations"
         );
-        for s in &self.stats {
-            println!(
-                "{:>5}  {:>8}  {:>12.4}  {:>10.3}  e:{} s:{}",
-                s.agent_id,
-                s.episodes,
-                s.entropy_ema,
-                s.score_ema,
-                s.entropy_violation_streak,
-                s.score_violation_streak,
-            );
+        println!(
+            "{:>5}  {:>8}  {:>12.4}  {:>10.3}  e:{} s:{}",
+            stats.agent_id,
+            stats.episodes,
+            stats.entropy_ema,
+            stats.score_ema,
+            stats.entropy_violation_streak,
+            stats.score_violation_streak,
+        );
+    }*/
+    /// Human-readable reason for pruning (for logging).
+    pub fn prune_reason(&self, stats: AgentStats) -> &'static str {
+        if stats.entropy_ema < self.cfg.entropy_floor {
+            "policy-collapsed (entropy too low)"
+        } else if stats.entropy_ema > self.cfg.entropy_ceiling {
+            "policy-random (entropy too high)"
+        } else {
+            "score-stagnant (score EMA below floor)"
         }
     }
 }

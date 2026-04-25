@@ -1,13 +1,13 @@
 use super::Action;
 use super::FlappyGradientAgent;
 use super::GameStateFeatures;
-use burn::backend::wgpu::{Wgpu, WgpuDevice};
+use bevy::prelude::warn;
 use burn::tensor::backend::AutodiffBackend;
 use std::collections::HashMap;
 
-use crate::FlappyNet;
 use crate::get_optimizer;
 use crate::ml::AgentDefault;
+use crate::ml::pruner::AgentStats;
 use crate::ml::pruner::PopulationManager;
 
 //following traits are not really usefull except for bind agent which *may* be influenced by the way you implement the backend , other than that there's not much to keep
@@ -19,7 +19,7 @@ use crate::ml::pruner::PopulationManager;
 pub struct AgentManager<B: AutodiffBackend> {
     pub inner: HashMap<u32, FlappyGradientAgent<B>>,
     device: B::Device,
-    pop: PopulationManager<B>,
+    pop: PopulationManager,
 }
 
 //"If you want to guarantee this is only ever used with the Wgpu backend, you can add a where clause"
@@ -28,12 +28,17 @@ impl<B: AutodiffBackend> AgentManager<B> {
         Self {
             device: device,
             inner: HashMap::new(),
-            pop: PopulationManager<B>
+            pop: PopulationManager::new(),
         }
     }
 
-    pub fn select_action(&self, key: u32, state: &GameStateFeatures) -> Action {
-        self.inner[&key].select_action(state)
+    pub fn select_action(&mut self, key: &u32, state: &GameStateFeatures) -> Action {
+        if let Some(agent) = self.inner.get_mut(key) {
+            agent.select_action(state)
+        } else {
+            warn!("agent not found '{}'", key);
+            Action::DoNothing
+        }
     }
 
     pub fn bind_agent(&mut self, key: u32) {
@@ -61,7 +66,8 @@ impl<B: AutodiffBackend> AgentManager<B> {
             episode: Vec::new(),
             gamma: AgentDefault::default().gamma,
             lr: AgentDefault::default().learning_rate,
-            entropy_sum:0.0
+            entropy_sum: 0.0,
+            stats: AgentStats::new(),
         };
         self.inner.insert(down, newagent);
         self
