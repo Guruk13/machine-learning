@@ -187,18 +187,41 @@ fn think(
         (With<Bird>, Without<Player>),
     >,
     mut am_ressource: NonSendMut<AMRessource<MyAutodiffBackend>>,
+    birds_dead: Query<
+        (Entity, &GameStateFeatures, &PartialReward, Option<&Dead>),
+        (With<Bird>, Without<Player>),
+    >,
 ) {
+    //make birds think
+    // do some stat analysis
+    // cleanup the dead birds
+
+    let deads: Vec<Entity>;
+
+    let mut run_optims: bool = false;
     //warn!( "Look mom , no .... : {:?}",query.iter().count);
     for (entity, &state, &reward, dead) in &birds {
+        let current_dead: bool;
         let action: Action = am_ressource
             .agent_manager
             .select_action(&entity.index().index(), &state);
-
+        //@todo match dead birds and exclude them from action "Jump"
+        match dead {
+            Some(dead) => {
+                run_optims = true;
+                current_dead = true;
+            }
+            None => {
+                current_dead = false;
+            }
+        }
         match action {
             Action::DoNothing => { /*  not because you pelican means you pelishould */ }
             Action::Jump => {
                 //warn!("Look mom , no user input  : {:?}", entity.index().to_string());
-                commands.trigger(BirdJump(entity));
+                if (!current_dead) {
+                    commands.trigger(BirdJump(entity));
+                }
             }
         }
 
@@ -210,15 +233,23 @@ fn think(
             .agent_manager
             .record_step(entity.index().index(), state, action, reward);
         commands.entity(entity).remove::<PartialReward>();
-
-        match dead {
-            Some(Dead) => {
-                am_ressource.agent_manager.bird_died(entity.index().index());
-                commands.entity(entity).remove::<Dead>();
-            }
-            None => { /* goes on */ }
-        };
+        if (current_dead) {
+            am_ressource
+                .agent_manager
+                .bind_agent(entity.index().index());
+        }
+        //Gamestate has been processed , process bird's agent  stats
+        am_ressource.agent_manager.update_stats();
     }
+    if (run_optims) {
+        am_ressource.agent_manager.update_stats();
+    }
+
+    am_ressource
+        .agent_manager
+        .update_stats(entity.index().index());
+    am_ressource.agent_manager.bird_died(entity.index().index());
+    commands.entity(entity).remove::<Dead>();
 }
 
 /* there is a duality , events and rewards are computed on "framerate update", "thinking" is a bruteforce thread which consumes ressources far too fast.

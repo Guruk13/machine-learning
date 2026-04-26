@@ -4,11 +4,13 @@ use super::GameStateFeatures;
 use bevy::prelude::warn;
 use burn::tensor::backend::AutodiffBackend;
 use std::collections::HashMap;
+use std::process::id;
 
 use crate::get_optimizer;
 use crate::ml::AgentDefault;
 use crate::ml::pruner::AgentStats;
 use crate::ml::pruner::PopulationManager;
+use crate::ml::pruner::PruningConfig;
 
 //following traits are not really usefull except for bind agent which *may* be influenced by the way you implement the backend , other than that there's not much to keep
 
@@ -33,12 +35,14 @@ impl<B: AutodiffBackend> AgentManager<B> {
     }
 
     pub fn select_action(&mut self, key: &u32, state: &GameStateFeatures) -> Action {
+        let action: Action;
         if let Some(agent) = self.inner.get_mut(key) {
-            agent.select_action(state)
+            action = agent.select_action(state);
         } else {
             warn!("agent not found '{}'", key);
-            Action::DoNothing
+            action = Action::DoNothing;
         }
+        action
     }
 
     pub fn bind_agent(&mut self, key: u32) {
@@ -80,6 +84,20 @@ impl<B: AutodiffBackend> AgentManager<B> {
             None => panic!("Agent '{}' not found", key),
         }
     }
+    pub fn prune_agents(&mut self) {
+        let (to_prune, best) = self.pop.spot_entropicishes(self.inner);
+        for key in to_prune {
+            self.swap_net(key, best);
+        }
+    }
+
+    pub fn update_stats(&mut self) {
+        self.inner.iter_mut().for_each(|(_key, agent)| {
+            agent
+                .stats
+                .update(agent.episode.clone(), &PruningConfig::default());
+        });
+    }
 
     /// Call when bird `i` dies — triggers its flappy update.
     /// Returns the loss for logging / display.
@@ -87,6 +105,7 @@ impl<B: AutodiffBackend> AgentManager<B> {
     pub fn bird_died(&mut self, key: u32) -> f32 {
         match self.inner.get_mut(&key) {
             Some(agent) => {
+                // spot entropicishes
                 return agent.finish_episode();
             }
             None => panic!("Agent '{}' not found", key),

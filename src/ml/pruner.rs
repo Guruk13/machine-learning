@@ -202,7 +202,6 @@ pub struct PopulationManager {
     //pub stats: Vec<AgentStats>,
     pub cfg: PruningConfig,
 }
-
 impl PopulationManager {
     pub fn new() -> Self {
         Self {
@@ -219,9 +218,9 @@ impl PopulationManager {
     ///   (used only for entropy measurement; pass `&[]` to skip).
     /// * `episode_returns` – total undiscounted return per agent.
     ///
-    /// Returns the indices of agents that need to be pruned and replaced.
+    /// Returns the indices of agents that need to be pruned and replaced as well as the index of the most "performant" bird.
     pub fn spot_entropicishes<B: AutodiffBackend>(
-        self,
+        &self,
         mut agents: HashMap<u32, FlappyGradientAgent<B>>,
     ) -> (Vec<u32>, u32) {
         let n = agents.len();
@@ -233,7 +232,7 @@ impl PopulationManager {
                 let entropy = measure_policy_entropy(agent);
                 agent.stats.entropy_ema = self.cfg.entropy_alpha * entropy
                     + (1.0 - self.cfg.entropy_alpha) * agent.stats.entropy_ema;
-                if (self.should_prune(agent.stats)) {
+                if self.should_prune(agent.stats) {
                     to_prune.push(*key);
                 };
             });
