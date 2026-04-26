@@ -1,9 +1,8 @@
-use bevy::ecs::schedule;
 use bevy::{image::ImageLoaderSettings, prelude::*};
 
 use burn::backend::Autodiff;
 
-use burn::backend::wgpu::{Wgpu, WgpuDevice};
+use burn::backend::wgpu::Wgpu;
 
 pub mod ml;
 use crate::ml::*;
@@ -17,7 +16,7 @@ use burn::tensor::backend::AutodiffBackend;
 pub const CANVAS_SIZE: Vec2 = Vec2::new(480., 270.);
 pub const PLAYER_SIZE: f32 = 25.0;
 const PIPE_SIZE: Vec2 = Vec2::new(32., CANVAS_SIZE.y);
-const GAP_SIZE: f32 = 100.0;
+const _GAP_SIZE: f32 = 100.0;
 pub const PIPE_SPEED: f32 = 200.0;
 
 pub struct AMRessource<B: AutodiffBackend> {
@@ -48,8 +47,6 @@ pub struct BrainPlugin;
 
 impl Plugin for BrainPlugin {
     fn build(&self, app: &mut App) {
-        let device = WgpuDevice::default();
-
         let device: <MyAutodiffBackend as burn::tensor::backend::Backend>::Device =
             Default::default();
 
@@ -93,7 +90,7 @@ pub struct Step {
     pub reward: f32,
 }
 
-fn spawn_pipes(mut commands: Commands, asset_server: Res<AssetServer>, time: Res<Time>) {
+fn _spawn_pipes(mut commands: Commands, asset_server: Res<AssetServer>, time: Res<Time>) {
     let image =
         asset_server.load_with_settings("pipe.png", |settings: &mut ImageLoaderSettings| {
             settings
@@ -110,7 +107,7 @@ fn spawn_pipes(mut commands: Commands, asset_server: Res<AssetServer>, time: Res
 
     let transform = Transform::from_xyz(CANVAS_SIZE.x / 2., 0.0, 1.0);
     let gap_y_position = (time.elapsed_secs() * 4.2309875).sin() * CANVAS_SIZE.y / 4.;
-    let pipe_offset = PIPE_SIZE.y / 2.0 + GAP_SIZE / 2.0;
+    let pipe_offset = PIPE_SIZE.y / 2.0 + _GAP_SIZE / 2.0;
 
     commands.spawn((
         transform,
@@ -131,7 +128,7 @@ fn spawn_pipes(mut commands: Commands, asset_server: Res<AssetServer>, time: Res
                 Visibility::Hidden,
                 Sprite {
                     color: Color::WHITE,
-                    custom_size: Some(Vec2::new(10.0, GAP_SIZE,)),
+                    custom_size: Some(Vec2::new(10.0, _GAP_SIZE,)),
                     ..default()
                 },
                 Transform::from_xyz(0.0, gap_y_position, 1.0,),
@@ -193,9 +190,6 @@ fn think(
     // do some stat analysis
     // cleanup the dead birds
 
-    let deads: Vec<Entity>;
-
-    let mut run_optims: bool = false;
     //warn!( "Look mom , no .... : {:?}",query.iter().count);
     for (entity, &state, &reward, dead) in &birds {
         let current_dead: bool;
@@ -204,8 +198,7 @@ fn think(
             .select_action(&entity.index().index(), &state);
         //@todo match dead birds and exclude them from action "Jump"
         match dead {
-            Some(dead) => {
-                run_optims = true;
+            Some(_dead) => {
                 current_dead = true;
             }
             None => {
@@ -216,7 +209,7 @@ fn think(
             Action::DoNothing => { /*  not because you pelican means you pelishould */ }
             Action::Jump => {
                 //warn!("Look mom , no user input  : {:?}", entity.index().to_string());
-                if (!current_dead) {
+                if !current_dead {
                     commands.trigger(BirdJump(entity));
                 }
             }
@@ -230,7 +223,7 @@ fn think(
             .agent_manager
             .record_step(entity.index().index(), state, action, reward);
         commands.entity(entity).remove::<PartialReward>();
-        if (current_dead) {
+        if current_dead {
             am_ressource
                 .agent_manager
                 .bind_agent(entity.index().index());
@@ -238,11 +231,12 @@ fn think(
         //Gamestate has been processed , process bird's agent  stats
         am_ressource.agent_manager.update_stats();
     }
-    if (run_optims) {
+
+    //run optims
+    if !&birds_dead.is_empty() {
         am_ressource.agent_manager.update_stats();
     }
 
-    am_ressource.agent_manager.update_stats();
     for bird in &birds_dead {
         am_ressource.agent_manager.bird_died(bird.0.index().index());
     }

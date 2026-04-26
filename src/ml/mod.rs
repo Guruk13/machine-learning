@@ -7,7 +7,6 @@ use burn::{
     tensor::{Distribution, Tensor, activation::softmax, backend::AutodiffBackend},
 };
 pub mod multiagent;
-use bevy::prelude::warn;
 pub mod pruner;
 use crate::pruner::AgentStats;
 use crate::pruner::normalised_entropy;

@@ -4,7 +4,6 @@ use super::GameStateFeatures;
 use bevy::prelude::warn;
 use burn::tensor::backend::AutodiffBackend;
 use std::collections::HashMap;
-use std::process::id;
 
 use crate::get_optimizer;
 use crate::ml::AgentDefault;

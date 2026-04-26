@@ -1,5 +1,3 @@
-use bevy::ecs::error::CommandWithEntity;
-use bevy::ecs::event::Trigger;
 use bevy::{
     camera::ScalingMode,
     image::ImageAddressMode,
@@ -179,7 +177,7 @@ fn spawn_birds(mut commands: Commands, asset_server: Res<AssetServer>) {
     }
 }
 
-fn spawn_player(mut commands: Commands, asset_server: Res<AssetServer>) {
+fn _spawn_player(mut commands: Commands, asset_server: Res<AssetServer>) {
     commands.spawn((Player, Bird::new(&*asset_server, true)));
 }
 

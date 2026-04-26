@@ -223,7 +223,6 @@ impl PopulationManager {
         &self,
         agents: &mut HashMap<u32, FlappyGradientAgent<B>>,
     ) -> (Vec<u32>, u32) {
-        let n = agents.len();
         let mut to_prune: Vec<u32> = Vec::new();
         // ── Measure entropy for each agent ────────────────────────────────
         agents
@@ -237,9 +236,9 @@ impl PopulationManager {
                 };
             });
         let best_idx: u32;
-        if let Some((key, agent)) = agents
+        if let Some((key, _agent)) = agents
             .iter()
-            .filter(|(key, agent)| !to_prune.contains(key))
+            .filter(|(key, _agent)| !to_prune.contains(key))
             .max_by(|(_, a), (_, b)| a.stats.score_ema.partial_cmp(&b.stats.score_ema).unwrap())
         {
             best_idx = *key;
