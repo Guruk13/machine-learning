@@ -221,7 +221,7 @@ impl PopulationManager {
     /// Returns the indices of agents that need to be pruned and replaced as well as the index of the most "performant" bird.
     pub fn spot_entropicishes<B: AutodiffBackend>(
         &self,
-        mut agents: HashMap<u32, FlappyGradientAgent<B>>,
+        agents: &mut HashMap<u32, FlappyGradientAgent<B>>,
     ) -> (Vec<u32>, u32) {
         let n = agents.len();
         let mut to_prune: Vec<u32> = Vec::new();

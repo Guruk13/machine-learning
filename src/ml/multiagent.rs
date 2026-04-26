@@ -84,11 +84,33 @@ impl<B: AutodiffBackend> AgentManager<B> {
             None => panic!("Agent '{}' not found", key),
         }
     }
-    pub fn prune_agents(&mut self) {
-        let (to_prune, best) = self.pop.spot_entropicishes(self.inner);
+
+    // do the swap logic inline or call a free fn
+    /**
+     * By destructuring self, Rust sees inner and pop as independent borrows rather than two borrows of the same self, which resolves the conflict.
+    If swap_net is a method on Self and needs &mut self again, extract it too: */
+
+    pub fn prune_agents(&mut self) -> &mut Self {
+        let Self { inner, pop, .. } = self;
+        let (to_prune, best) = pop.spot_entropicishes(inner);
         for key in to_prune {
-            self.swap_net(key, best);
+            // swap an agent's net with another
+            // The optimiser state is always freshly initialised.
+            let optimizer = get_optimizer();
+            let up_agent_net = self.inner[&best].flappy.clone();
+            let newagent: FlappyGradientAgent<B> = FlappyGradientAgent {
+                flappy: up_agent_net,
+                optimizer: optimizer,
+                device: self.device.clone(),
+                episode: Vec::new(),
+                gamma: AgentDefault::default().gamma,
+                lr: AgentDefault::default().learning_rate,
+                entropy_sum: 0.0,
+                stats: AgentStats::new(),
+            };
+            self.inner.insert(key, newagent);
         }
+        self
     }
 
     pub fn update_stats(&mut self) {

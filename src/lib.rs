@@ -187,10 +187,7 @@ fn think(
         (With<Bird>, Without<Player>),
     >,
     mut am_ressource: NonSendMut<AMRessource<MyAutodiffBackend>>,
-    birds_dead: Query<
-        (Entity, &GameStateFeatures, &PartialReward, Option<&Dead>),
-        (With<Bird>, Without<Player>),
-    >,
+    birds_dead: Query<(Entity, &Dead), (With<Bird>, Without<Player>)>,
 ) {
     //make birds think
     // do some stat analysis
@@ -245,11 +242,10 @@ fn think(
         am_ressource.agent_manager.update_stats();
     }
 
-    am_ressource
-        .agent_manager
-        .update_stats(entity.index().index());
-    am_ressource.agent_manager.bird_died(entity.index().index());
-    commands.entity(entity).remove::<Dead>();
+    am_ressource.agent_manager.update_stats();
+    for bird in &birds_dead {
+        am_ressource.agent_manager.bird_died(bird.0.index().index());
+    }
 }
 
 /* there is a duality , events and rewards are computed on "framerate update", "thinking" is a bruteforce thread which consumes ressources far too fast.
