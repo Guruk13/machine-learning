@@ -59,9 +59,10 @@ impl Plugin for BrainPlugin {
         app.add_observer(bird_pass_reward);
         app.add_systems(Update, bird_bind_agent);
         app.add_systems(
-            FixedUpdate,
-            (ApplyDeferred, (think).in_set(GameSets::AI).chain()),
+            Update,
+            (bird_alive_reward, ApplyDeferred, sync_agent_state).chain(),
         );
+        app.add_systems(FixedUpdate, think.in_set(GameSets::AI));
     }
 }
 
@@ -164,6 +165,7 @@ fn despawn_pipes(mut commands: Commands, pipes: Query<(Entity, &Transform), With
 }
 
 fn bird_bind_agent(
+    mut commands: Commands,
     query: Query<Entity, Added<Bird>>,
     mut am_ressource: NonSendMut<AMRessource<MyAutodiffBackend>>,
 ) {
@@ -172,6 +174,8 @@ fn bird_bind_agent(
         am_ressource
             .agent_manager
             .bind_agent(entity.index().index());
+        commands.entity(entity).insert(AgentState::new(false));
+
         //warn!("Debout , joli bouton d'or : {:?}",entity.index().to_string());
     }
 }
@@ -181,7 +185,7 @@ fn bird_bind_agent(
 fn think(
     mut commands: Commands,
     birds: Query<
-        (Entity, &GameStateFeatures, &PartialReward, Option<&Dead>),
+        (Entity, &GameStateFeatures, &PartialReward, &AgentState),
         (With<Bird>, Without<Player>),
     >,
     mut am_ressource: NonSendMut<AMRessource<MyAutodiffBackend>>,
@@ -189,32 +193,17 @@ fn think(
     //make birds think
     let all_birds: Vec<_> = birds.iter().collect();
 
-    let birds_dead: Vec<_> = all_birds
-        .iter()
-        .filter(|(_, _, _, dead)| dead.is_some())
-        .collect();
-
     //warn!( "Look mom , no .... : {:?}",query.iter().count);
-    for (entity, state, reward, dead) in &all_birds {
-        let current_dead: bool;
+    for (entity, state, reward, dead_state) in &all_birds {
         let action: Action = am_ressource
             .agent_manager
             .select_action(&entity.index().index(), &state);
         //@todo match dead birds and exclude them from action "Jump"
-        match dead {
-            Some(_dead) => {
-                current_dead = true;
-            }
-            None => {
-                current_dead = false;
-            }
-        }
         match action {
             Action::DoNothing => { /*  not because you pelican means you pelishould */ }
             Action::Jump => {
                 //warn!("Look mom , no user input  : {:?}", entity.index().to_string());
-                if !current_dead {
-                    warn!(current_dead);
+                if !dead_state.is_dead {
                     commands.trigger(BirdJump(*entity));
                 }
             }
@@ -229,6 +218,10 @@ fn think(
             .record_step(entity.index().index(), **state, action, reward);
         commands.entity(*entity).remove::<PartialReward>();
         //Gamestate has been processed , process bird's agent  stats
+        let birds_dead: Vec<_> = all_birds
+            .iter()
+            .filter(|(_, _, _, dead)| dead.is_dead == true)
+            .collect();
 
         warn!("{:?}", birds_dead.len()); // no need for .iter().len()
         for bird in &birds_dead {
@@ -237,7 +230,6 @@ fn think(
 
         if !&birds_dead.is_empty() {
             // drop the &
-            warn!("dieded");
             am_ressource.agent_manager.update_stats();
             am_ressource.agent_manager.prune_agents();
         }
@@ -247,6 +239,7 @@ fn think(
             am_ressource
                 .agent_manager
                 .clear_episode(bird.0.index().index());
+            commands.entity(bird.0).insert(AgentState::new(false));
         }
     }
 }
@@ -254,6 +247,24 @@ fn think(
 /* there is a duality , events and rewards are computed on "framerate update", "thinking" is a bruteforce thread which consumes ressources far too fast.
 in the system and event catcher below a RewardHolder is added , on fixed update (bruteforce) we look for component and run the computation if it is found
 . Game and Ai thread should balance out and meet in the middle with this hack.  */
+
+#[derive(Component)]
+pub struct AgentState {
+    pub is_dead: bool,
+    // you could fold GameStateFeatures in here too
+    //
+}
+impl AgentState {
+    pub fn new(is_dead: bool) -> Self {
+        Self { is_dead: is_dead }
+    }
+}
+
+fn sync_agent_state(mut commands: Commands, agents: Query<(Entity, &Dead), With<Bird>>) {
+    for bird in &agents {
+        commands.entity(bird.0).insert(AgentState::new(true));
+    }
+}
 
 #[derive(Component, Default, Clone, Copy)]
 pub struct PartialReward(pub f32);
@@ -323,6 +334,9 @@ fn bird_death_reward(
         };
         commands.entity(entity_event.bird).insert(new_score);
         commands.entity(entity_event.bird).insert(Dead);
+        commands
+            .entity(entity_event.bird)
+            .insert(AgentState::new(true));
     }
 }
 
