@@ -215,7 +215,7 @@ impl<B: AutodiffBackend> FlappyGradientAgent<B> {
         self.flappy = self.optimizer.step(self.lr, self.flappy.clone(), grads);
 
         // ── 3i. Reset episode buffer ──────────────────────────────────────
-        self.episode.clear();
+        self.stats.episodes += 1;
         loss_scalar
     }
 

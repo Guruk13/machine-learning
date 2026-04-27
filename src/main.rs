@@ -22,10 +22,7 @@ fn main() -> AppExit {
             PipePlugin,
             Material2dPlugin::<BackgroundMaterial>::default(),
         ))
-        .add_systems(
-            Startup,
-            (startup, spawn_birds, ApplyDeferred).in_set(GameSets::Game),
-        )
+        .add_systems(Startup, (startup, spawn_birds).in_set(GameSets::Game))
         .add_systems(
             FixedUpdate,
             (gravity, check_in_bounds, check_collisions).chain(),
@@ -38,7 +35,7 @@ fn main() -> AppExit {
                 enforce_bird_direction,
             ),
         )
-        .add_systems(FixedPostUpdate, bird_respawn)
+        .add_systems(FixedPostUpdate, (bird_respawn).in_set(GameSets::AI))
         .add_observer(respawn_on_endgame)
         .add_observer(on_bird_jump)
         .add_observer(|_trigger: On<ScorePoint>, mut score: ResMut<Score>| {
@@ -269,26 +266,37 @@ fn enforce_bird_direction(players: Query<(&mut Transform, &Velocity), With<Bird>
 //on postfixed update to give time for proper thinking and avoid collision
 fn bird_respawn(
     birds_dead: Query<(Entity, &Dead), (With<Bird>, Without<Player>)>,
-    mut commands: Commands,
     pipe_segments: Query<(&Sprite, Entity), Or<(With<PipeTop>, With<PipeBottom>)>>,
     transform_helper: TransformHelper,
+    mut commands: Commands,
 ) -> Result<()> {
     let translation = Vec2::new(-CANVAS_SIZE.x / 4.0, 0.0); // your chosen location
     let bird_collider = BoundingCircle::new(translation, PLAYER_SIZE / 2.);
-    for (sprite, entity) in &pipe_segments {
-        let pipe_transform = transform_helper.compute_global_transform(entity)?;
-        let pipe_collider = Aabb2d::new(
-            pipe_transform.translation().xy(),
-            sprite.custom_size.unwrap() / 2.,
-        );
+    if !&pipe_segments.is_empty() {
+        for (sprite, entity) in &pipe_segments {
+            let pipe_transform = transform_helper.compute_global_transform(entity)?;
+            let pipe_collider = Aabb2d::new(
+                pipe_transform.translation().xy(),
+                sprite.custom_size.unwrap() / 2.,
+            );
 
-        if !bird_collider.intersects(&pipe_collider) {
-            for bird in &birds_dead {
-                commands.entity(bird.0).insert((
-                    Transform::from_xyz(-CANVAS_SIZE.x / 4.0, 0., 1.0),
-                    Velocity(0.),
-                ));
+            if !bird_collider.intersects(&pipe_collider) {
+                for bird in &birds_dead {
+                    commands.entity(bird.0).insert((
+                        Transform::from_xyz(-CANVAS_SIZE.x / 4.0, 0., 1.0),
+                        Velocity(0.),
+                    ));
+                    commands.entity(bird.0).remove::<Dead>();
+                }
             }
+        }
+    } else {
+        for bird in &birds_dead {
+            commands.entity(bird.0).insert((
+                Transform::from_xyz(-CANVAS_SIZE.x / 4.0, 0., 1.0),
+                Velocity(0.),
+            ));
+            commands.entity(bird.0).remove::<Dead>();
         }
     }
     Ok(())

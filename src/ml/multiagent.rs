@@ -1,6 +1,7 @@
 use super::Action;
 use super::FlappyGradientAgent;
 use super::GameStateFeatures;
+use bevy::ecs::error::warn;
 use bevy::prelude::warn;
 use burn::tensor::backend::AutodiffBackend;
 use std::collections::HashMap;
@@ -78,6 +79,7 @@ impl<B: AutodiffBackend> AgentManager<B> {
 
     /// Record one tick of experience for bird `i`.
     pub fn record_step(&mut self, key: u32, state: GameStateFeatures, action: Action, reward: f32) {
+        //warn!("recording");
         match self.inner.get_mut(&key) {
             Some(agent) => agent.record_step(state, action, reward),
             None => panic!("Agent '{}' not found", key),
@@ -118,6 +120,14 @@ impl<B: AutodiffBackend> AgentManager<B> {
                 .stats
                 .update(agent.episode.clone(), &PruningConfig::default());
         });
+    }
+    pub fn clear_episode(&mut self, key: u32) {
+        match self.inner.get_mut(&key) {
+            Some(agent) => {
+                agent.episode.clear();
+            }
+            None => panic!("Agent '{}' not found", key),
+        }
     }
 
     /// Call when bird `i` dies — triggers its flappy update.

@@ -28,6 +28,7 @@
 use burn::tensor::backend::AutodiffBackend;
 
 use crate::{FlappyGradientAgent, ml::EpisodeStep};
+use bevy::prelude::warn;
 use std::{collections::HashMap, panic};
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -98,7 +99,7 @@ impl AgentStats {
     /// * `raw_entropy` – normalised entropy ∈ [0, 1] measured over the episode
     /// * `episode_return` – sum of undiscounted rewards for the episode
     pub fn update(&mut self, episode: Vec<EpisodeStep>, cfg: &PruningConfig) {
-        self.episodes += 1;
+        warn!("{:?}", self.episodes);
         let episode_return: f32 = episode.iter().fold(0.0, |acc, x| acc + x.reward);
         // Score EMA
         self.score_ema =
@@ -184,6 +185,8 @@ impl Default for PruningConfig {
 ///
 pub fn measure_policy_entropy<B: AutodiffBackend>(agent: &FlappyGradientAgent<B>) -> f32 {
     let n = agent.episode.len();
+
+    warn!("{:?}", agent.episode.len());
     agent.entropy_sum / n as f32
 }
 

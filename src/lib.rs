@@ -1,7 +1,6 @@
 use bevy::{image::ImageLoaderSettings, prelude::*};
 
 use burn::backend::Autodiff;
-
 use burn::backend::wgpu::Wgpu;
 
 pub mod ml;
@@ -58,9 +57,11 @@ impl Plugin for BrainPlugin {
         app.add_systems(Update, bird_alive_reward);
         app.add_observer(bird_death_reward);
         app.add_observer(bird_pass_reward);
-
         app.add_systems(Update, bird_bind_agent);
-        app.add_systems(FixedUpdate, (think).in_set(player::GameSets::AI));
+        app.add_systems(
+            FixedUpdate,
+            (ApplyDeferred, (think).in_set(GameSets::AI).chain()),
+        );
     }
 }
 
@@ -176,22 +177,25 @@ fn bird_bind_agent(
 }
 
 //  Birds think .  what will you have after 500 years ?
+
 fn think(
     mut commands: Commands,
-
     birds: Query<
         (Entity, &GameStateFeatures, &PartialReward, Option<&Dead>),
         (With<Bird>, Without<Player>),
     >,
     mut am_ressource: NonSendMut<AMRessource<MyAutodiffBackend>>,
-    birds_dead: Query<(Entity, &Dead), (With<Bird>, Without<Player>)>,
 ) {
     //make birds think
-    // do some stat analysis
-    // cleanup the dead birds
+    let all_birds: Vec<_> = birds.iter().collect();
+
+    let birds_dead: Vec<_> = all_birds
+        .iter()
+        .filter(|(_, _, _, dead)| dead.is_some())
+        .collect();
 
     //warn!( "Look mom , no .... : {:?}",query.iter().count);
-    for (entity, &state, &reward, dead) in &birds {
+    for (entity, state, reward, dead) in &all_birds {
         let current_dead: bool;
         let action: Action = am_ressource
             .agent_manager
@@ -210,35 +214,40 @@ fn think(
             Action::Jump => {
                 //warn!("Look mom , no user input  : {:?}", entity.index().to_string());
                 if !current_dead {
-                    commands.trigger(BirdJump(entity));
+                    warn!(current_dead);
+                    commands.trigger(BirdJump(*entity));
                 }
             }
         }
 
         // Small bonus for staying near the centre of the gap
         let gap_centre_penalty = (state.next_pipe_top_y - state.next_pipe_bottom_y).abs() * 0.001;
-        let reward = reward - gap_centre_penalty;
+        let reward = **reward - gap_centre_penalty;
         //warn!( "Sad {:?}",state);
         am_ressource
             .agent_manager
-            .record_step(entity.index().index(), state, action, reward);
-        commands.entity(entity).remove::<PartialReward>();
-        if current_dead {
+            .record_step(entity.index().index(), **state, action, reward);
+        commands.entity(*entity).remove::<PartialReward>();
+        //Gamestate has been processed , process bird's agent  stats
+
+        warn!("{:?}", birds_dead.len()); // no need for .iter().len()
+        for bird in &birds_dead {
+            am_ressource.agent_manager.bird_died(bird.0.index().index());
+        }
+
+        if !&birds_dead.is_empty() {
+            // drop the &
+            warn!("dieded");
+            am_ressource.agent_manager.update_stats();
+            am_ressource.agent_manager.prune_agents();
+        }
+
+        warn!("{:?}", &birds_dead.len()); // no need for .iter().len()
+        for bird in &birds_dead {
             am_ressource
                 .agent_manager
-                .bind_agent(entity.index().index());
+                .clear_episode(bird.0.index().index());
         }
-        //Gamestate has been processed , process bird's agent  stats
-        am_ressource.agent_manager.update_stats();
-    }
-
-    //run optims
-    if !&birds_dead.is_empty() {
-        am_ressource.agent_manager.update_stats();
-    }
-
-    for bird in &birds_dead {
-        am_ressource.agent_manager.bird_died(bird.0.index().index());
     }
 }
 
@@ -301,13 +310,13 @@ fn bird_alive_reward(
         commands.entity(entity).insert(new_score);
     }
 }
-
+//@Todo extract gameplay insert dead
 fn bird_death_reward(
     entity_event: On<BirdDeath>,
     mut commands: Commands,
-    dead_birds: Query<(Entity, Option<&PartialReward>), With<Bird>>,
+    birds: Query<(Entity, Option<&PartialReward>), With<Bird>>,
 ) {
-    if let Ok((_entity, partial_reward)) = dead_birds.get(entity_event.bird) {
+    if let Ok((_entity, partial_reward)) = birds.get(entity_event.bird) {
         let new_score = match partial_reward {
             Some(score) => PartialReward(score.0 + RewardPrizes::default().dying),
             None => PartialReward(RewardPrizes::default().dying),
