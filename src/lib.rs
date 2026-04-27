@@ -223,7 +223,6 @@ fn think(
             .filter(|(_, _, _, dead)| dead.is_dead == true)
             .collect();
 
-        warn!("{:?}", birds_dead.len()); // no need for .iter().len()
         for bird in &birds_dead {
             am_ressource.agent_manager.bird_died(bird.0.index().index());
         }
@@ -234,7 +233,6 @@ fn think(
             am_ressource.agent_manager.prune_agents();
         }
 
-        warn!("{:?}", &birds_dead.len()); // no need for .iter().len()
         for bird in &birds_dead {
             am_ressource
                 .agent_manager
