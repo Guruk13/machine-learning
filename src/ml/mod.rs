@@ -90,7 +90,7 @@ impl<B: AutodiffBackend> FlappyGradientAgent<B> {
             gamma, // how much it cares for future rewards
             lr,    //aka learning rate
             entropy_sum: 0.0,
-            stats: AgentStats::new(),
+            stats: AgentStats::new(None, None, None),
         }
     }
 

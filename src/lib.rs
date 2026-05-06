@@ -1,7 +1,7 @@
-use bevy::{image::ImageLoaderSettings, prelude::*};
-
+use bevy::{image::ImageLoaderSettings, prelude::*, time::common_conditions::on_timer};
 use burn::backend::Autodiff;
 use burn::backend::wgpu::Wgpu;
+use std::time::Duration;
 
 pub mod ml;
 use crate::ml::*;
@@ -36,7 +36,7 @@ impl Plugin for PipePlugin {
             (
                 despawn_pipes,
                 shift_pipes_to_the_left,
-                //spawn_pipes.run_if(on_timer(Duration::from_millis(1000))),
+                spawn_pipes.run_if(on_timer(Duration::from_millis(1000))),
             ),
         );
     }
@@ -58,10 +58,7 @@ impl Plugin for BrainPlugin {
         app.add_observer(bird_death_reward);
         app.add_observer(bird_pass_reward);
         app.add_systems(Update, bird_bind_agent);
-        app.add_systems(
-            Update,
-            (bird_alive_reward, ApplyDeferred, sync_agent_state).chain(),
-        );
+        app.add_systems(Update, bird_alive_reward);
         app.add_systems(FixedUpdate, think.in_set(GameSets::AI));
     }
 }
@@ -92,7 +89,7 @@ pub struct Step {
     pub reward: f32,
 }
 
-fn _spawn_pipes(mut commands: Commands, asset_server: Res<AssetServer>, time: Res<Time>) {
+fn spawn_pipes(mut commands: Commands, asset_server: Res<AssetServer>, time: Res<Time>) {
     let image =
         asset_server.load_with_settings("pipe.png", |settings: &mut ImageLoaderSettings| {
             settings
@@ -258,12 +255,6 @@ impl AgentState {
     }
 }
 
-fn sync_agent_state(mut commands: Commands, agents: Query<(Entity, &Dead), With<Bird>>) {
-    for bird in &agents {
-        commands.entity(bird.0).insert(AgentState::new(true));
-    }
-}
-
 #[derive(Component, Default, Clone, Copy)]
 pub struct PartialReward(pub f32);
 
@@ -331,7 +322,7 @@ fn bird_death_reward(
             None => PartialReward(RewardPrizes::default().dying),
         };
         commands.entity(entity_event.bird).insert(new_score);
-        commands.entity(entity_event.bird).insert(Dead);
+        commands.entity(entity_event.bird).despawn();
         commands
             .entity(entity_event.bird)
             .insert(AgentState::new(true));

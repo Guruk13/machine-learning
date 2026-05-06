@@ -12,10 +12,13 @@ use flappy_bird::*;
 
 use crate::player::*;
 use player::GameSets;
+#[derive(Resource, Default)]
+struct BirdInventory(Vec<u32>);
 
 fn main() -> AppExit {
     App::new()
         .init_resource::<Score>()
+        .insert_resource(BirdInventory(vec![]))
         .configure_sets(FixedUpdate, (GameSets::Game, GameSets::AI).chain())
         .add_plugins(DefaultPlugins)
         .add_plugins((
@@ -169,13 +172,13 @@ fn respawn_on_endgame(
 }
 
 fn spawn_birds(mut commands: Commands, asset_server: Res<AssetServer>) {
-    for _n in 0..5 {
-        commands.spawn(Bird::new(&*asset_server, false));
+    for n in 0..5 {
+        commands.spawn(Bird::new(&*asset_server, false, n));
     }
 }
 
 fn _spawn_player(mut commands: Commands, asset_server: Res<AssetServer>) {
-    commands.spawn((Player, Bird::new(&*asset_server, true)));
+    commands.spawn((Player, Bird::new(&*asset_server, true, 0)));
 }
 
 fn check_collisions(
@@ -268,6 +271,7 @@ fn bird_respawn(
     birds_dead: Query<(Entity, &Dead), (With<Bird>, Without<Player>)>,
     pipe_segments: Query<(&Sprite, Entity), Or<(With<PipeTop>, With<PipeBottom>)>>,
     transform_helper: TransformHelper,
+    birdinv: Res<BirdInventory>,
     mut commands: Commands,
 ) -> Result<()> {
     let translation = Vec2::new(-CANVAS_SIZE.x / 4.0, 0.0); // your chosen location
@@ -281,12 +285,9 @@ fn bird_respawn(
             );
 
             if !bird_collider.intersects(&pipe_collider) {
-                for bird in &birds_dead {
-                    commands.entity(bird.0).insert((
-                        Transform::from_xyz(-CANVAS_SIZE.x / 4.0, 0., 1.0),
-                        Velocity(0.),
-                    ));
-                    commands.entity(bird.0).remove::<Dead>();
+                warn! { "does not intersect "}
+                for bird in &birdinv.0 {
+                    spawn_bird(bird);
                 }
             }
         }

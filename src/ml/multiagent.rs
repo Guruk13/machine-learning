@@ -58,24 +58,6 @@ impl<B: AutodiffBackend> AgentManager<B> {
         //remove *should* use the drop function which is freeing the memory of WGPU's garabage collector more efficiently
         self.inner.remove(&key);
     }
-    /// swap an agent's net with another
-    /// The optimiser state is always freshly initialised.
-    pub fn swap_net(&mut self, down: u32, up: u32) -> &mut Self {
-        let optimizer = get_optimizer();
-        let up_agent_net = self.inner[&up].flappy.clone();
-        let newagent: FlappyGradientAgent<B> = FlappyGradientAgent {
-            flappy: up_agent_net,
-            optimizer: optimizer,
-            device: self.device.clone(),
-            episode: Vec::new(),
-            gamma: AgentDefault::default().gamma,
-            lr: AgentDefault::default().learning_rate,
-            entropy_sum: 0.0,
-            stats: AgentStats::new(),
-        };
-        self.inner.insert(down, newagent);
-        self
-    }
 
     /// Record one tick of experience for bird `i`.
     pub fn record_step(&mut self, key: u32, state: GameStateFeatures, action: Action, reward: f32) {
@@ -107,7 +89,12 @@ impl<B: AutodiffBackend> AgentManager<B> {
                 gamma: AgentDefault::default().gamma,
                 lr: AgentDefault::default().learning_rate,
                 entropy_sum: 0.0,
-                stats: AgentStats::new(),
+                //new agent from net but keep evaluating its progression
+                stats: AgentStats::new(
+                    Some(self.inner[&key].stats.episodes),
+                    Some(self.inner[&key].stats.entropy_ema),
+                    Some(self.inner[&key].stats.score_ema),
+                ),
             };
             self.inner.insert(key, newagent);
         }
