@@ -209,7 +209,7 @@ fn think(
         // Small bonus for staying near the centre of the gap
         let gap_centre_penalty = (state.next_pipe_top_y - state.next_pipe_bottom_y).abs() * 0.001;
         let reward = **reward - gap_centre_penalty;
-        //warn!( "Sad {:?}",state);
+
         am_ressource
             .agent_manager
             .record_step(entity.index().index(), **state, action, reward);
@@ -290,8 +290,7 @@ fn bird_alive_reward(
             .unwrap_or(500.0);
         let nearest_top_y = nearest_top.map(|t| t.translation().y).unwrap_or(-1.0);
         let nearest_bottom_y = nearest_bottom.map(|t| t.translation().y).unwrap_or(-1.0);
-        //warn!("{:#?}", nearest_bottom_y);
-        //warn!("{:#?}", nearest_top_y);
+
         let state = GameStateFeatures {
             bird_y: transform.translation.y,
             bird_speed: calculated_velocity, //calculated_velocity,
@@ -314,15 +313,17 @@ fn bird_alive_reward(
 fn bird_death_reward(
     entity_event: On<BirdDeath>,
     mut commands: Commands,
-    birds: Query<(Entity, Option<&PartialReward>), With<Bird>>,
+    birds: Query<(Entity, &Bird, Option<&PartialReward>)>,
+    mut birdinv: ResMut<BirdInventory>,
 ) {
-    if let Ok((_entity, partial_reward)) = birds.get(entity_event.bird) {
+    if let Ok((_entity, bird, partial_reward)) = birds.get(entity_event.bird) {
         let new_score = match partial_reward {
             Some(score) => PartialReward(score.0 + RewardPrizes::default().dying),
             None => PartialReward(RewardPrizes::default().dying),
         };
         commands.entity(entity_event.bird).insert(new_score);
         commands.entity(entity_event.bird).despawn();
+        birdinv.0.push(bird.uid);
         commands
             .entity(entity_event.bird)
             .insert(AgentState::new(true));

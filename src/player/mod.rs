@@ -33,7 +33,7 @@ pub enum GameSets {
 #[derive(Component, Debug)]
 #[require(Gravity(1000.), Velocity)]
 pub struct Bird {
-    uid: u32,
+    pub uid: u32,
 }
 
 #[derive(Event)]
@@ -68,3 +68,6 @@ impl Bird {
         )
     }
 }
+
+#[derive(Resource, Default)]
+pub struct BirdInventory(pub Vec<u32>);

@@ -12,8 +12,6 @@ use flappy_bird::*;
 
 use crate::player::*;
 use player::GameSets;
-#[derive(Resource, Default)]
-struct BirdInventory(Vec<u32>);
 
 fn main() -> AppExit {
     App::new()
@@ -268,14 +266,15 @@ fn enforce_bird_direction(players: Query<(&mut Transform, &Velocity), With<Bird>
 
 //on postfixed update to give time for proper thinking and avoid collision
 fn bird_respawn(
-    birds_dead: Query<(Entity, &Dead), (With<Bird>, Without<Player>)>,
+    mut commands: Commands,
+    asset_server: Res<AssetServer>,
+    mut birdinv: ResMut<BirdInventory>,
     pipe_segments: Query<(&Sprite, Entity), Or<(With<PipeTop>, With<PipeBottom>)>>,
     transform_helper: TransformHelper,
-    birdinv: Res<BirdInventory>,
-    mut commands: Commands,
 ) -> Result<()> {
-    let translation = Vec2::new(-CANVAS_SIZE.x / 4.0, 0.0); // your chosen location
-    let bird_collider = BoundingCircle::new(translation, PLAYER_SIZE / 2.);
+    let translation = Vec2::new(-CANVAS_SIZE.x / 4.0, 0.0);
+    //spawn point with player size +10%
+    let bird_collider = BoundingCircle::new(translation, PLAYER_SIZE / 2. * 1.1);
     if !&pipe_segments.is_empty() {
         for (sprite, entity) in &pipe_segments {
             let pipe_transform = transform_helper.compute_global_transform(entity)?;
@@ -286,18 +285,20 @@ fn bird_respawn(
 
             if !bird_collider.intersects(&pipe_collider) {
                 warn! { "does not intersect "}
-                for bird in &birdinv.0 {
-                    spawn_bird(bird);
+                if !birdinv.0.is_empty() {
+                    birdinv.0.iter().for_each(|value| {
+                        commands.spawn(Bird::new(&*asset_server, false, *value));
+                    });
+                    birdinv.0.clear();
                 }
             }
         }
     } else {
-        for bird in &birds_dead {
-            commands.entity(bird.0).insert((
-                Transform::from_xyz(-CANVAS_SIZE.x / 4.0, 0., 1.0),
-                Velocity(0.),
-            ));
-            commands.entity(bird.0).remove::<Dead>();
+        if !birdinv.0.is_empty() {
+            birdinv.0.iter().for_each(|value| {
+                commands.spawn(Bird::new(&*asset_server, false, *value));
+            });
+            birdinv.0.clear();
         }
     }
     Ok(())
