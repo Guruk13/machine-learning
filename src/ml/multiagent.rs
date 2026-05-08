@@ -1,7 +1,7 @@
 use super::Action;
 use super::FlappyGradientAgent;
 use super::GameStateFeatures;
-use bevy::ecs::error::warn;
+//use bevy::ecs::error::warn;
 use bevy::prelude::warn;
 use burn::tensor::backend::AutodiffBackend;
 use std::collections::HashMap;
@@ -34,9 +34,9 @@ impl<B: AutodiffBackend> AgentManager<B> {
         }
     }
 
-    pub fn select_action(&mut self, key: &u32, state: &GameStateFeatures) -> Action {
+    pub fn select_action(&mut self, key: u32, state: &GameStateFeatures) -> Action {
         let action: Action;
-        if let Some(agent) = self.inner.get_mut(key) {
+        if let Some(agent) = self.inner.get_mut(&key) {
             action = agent.select_action(state);
         } else {
             warn!("agent not found '{}'", key);
@@ -46,12 +46,11 @@ impl<B: AutodiffBackend> AgentManager<B> {
     }
 
     pub fn bind_agent(&mut self, key: u32) {
-        let agent = FlappyGradientAgent::new(
+        self.inner.entry(key).or_insert(FlappyGradientAgent::new(
             self.device.clone(),
             AgentDefault::default().gamma,
             AgentDefault::default().learning_rate,
-        );
-        self.inner.insert(key, agent);
+        ));
     }
 
     pub fn unbind_agent(&mut self, key: u32) {

@@ -17,13 +17,22 @@ fn main() -> AppExit {
     App::new()
         .init_resource::<Score>()
         .insert_resource(BirdInventory(vec![]))
-        .configure_sets(FixedUpdate, (GameSets::Game, GameSets::AI).chain())
+        .configure_sets(
+            FixedUpdate,
+            (
+                GameSets::Input,
+                GameSets::Game,
+                GameSets::AI,
+                GameSets::Cleanup,
+            )
+                .chain(),
+        )
         .add_plugins(DefaultPlugins)
         .add_plugins((
             PipePlugin,
             Material2dPlugin::<BackgroundMaterial>::default(),
         ))
-        .add_systems(Startup, (startup, spawn_birds).in_set(GameSets::Game))
+        .add_systems(Startup, (startup, spawn_birds))
         .add_systems(
             FixedUpdate,
             (gravity, check_in_bounds, check_collisions).chain(),
@@ -31,17 +40,38 @@ fn main() -> AppExit {
         .add_systems(
             Update,
             (
-                controls.run_if(any_with_component::<Player>),
                 score_update.run_if(resource_changed::<Score>),
                 enforce_bird_direction,
             ),
         )
-        .add_systems(FixedPostUpdate, (bird_respawn).in_set(GameSets::AI))
         .add_observer(respawn_on_endgame)
         .add_observer(on_bird_jump)
         .add_observer(|_trigger: On<ScorePoint>, mut score: ResMut<Score>| {
             score.0 += 1;
         })
+        // Input
+        .add_systems(
+            Update,
+            controls
+                .run_if(any_with_component::<Player>)
+                .in_set(GameSets::Input),
+        )
+        // Game
+        .add_systems(
+            FixedUpdate,
+            (gravity, check_in_bounds, check_collisions)
+                .chain()
+                .in_set(GameSets::Game),
+        )
+        // usually you'd rather move an entity instead of despawn /respawn.
+        // here pipes can obstruct the spawn point. spawn a bird only in somewhat fair conditions
+        .add_systems(
+            FixedUpdate,
+            (ApplyDeferred, despawn_deads, bird_respawn)
+                .chain()
+                .in_set(GameSets::Cleanup),
+        )
+        // AI
         .add_plugins(BrainPlugin)
         .run()
 }
@@ -170,13 +200,29 @@ fn respawn_on_endgame(
 }
 
 fn spawn_birds(mut commands: Commands, asset_server: Res<AssetServer>) {
-    for n in 0..5 {
+    for n in 0..3 {
         commands.spawn(Bird::new(&*asset_server, false, n));
     }
 }
 
 fn _spawn_player(mut commands: Commands, asset_server: Res<AssetServer>) {
     commands.spawn((Player, Bird::new(&*asset_server, true, 0)));
+}
+
+fn despawn_deads(
+    mut commands: Commands,
+    birdinv: Res<BirdInventory>,
+    birds: Query<(Entity, &Bird)>,
+) {
+    //warn! {"there'll be another time"};
+    for (entity, bird) in birds {
+        birdinv.0.iter().for_each(|f| {
+            if *f == bird.uid {
+                warn! {"there'll be another time {:?}", bird.uid}
+                commands.entity(entity).despawn();
+            };
+        });
+    }
 }
 
 fn check_collisions(
@@ -231,7 +277,6 @@ fn check_collisions(
 
             if bird_collider.intersects(&gap_collider) {
                 commands.trigger(ScorePoint { bird: bird.1 });
-                //commands.entity(entity).despawn();
             }
         }
     }
@@ -257,8 +302,8 @@ impl Material2d for BackgroundMaterial {
     }
 }
 
-fn enforce_bird_direction(players: Query<(&mut Transform, &Velocity), With<Bird>>) {
-    for mut player in players {
+fn enforce_bird_direction(birds: Query<(&mut Transform, &Velocity), With<Bird>>) {
+    for mut player in birds {
         let calculated_velocity = Vec2::new(PIPE_SPEED, player.1.0);
         player.0.rotation = Quat::from_rotation_z(calculated_velocity.to_angle());
     }
@@ -273,34 +318,27 @@ fn bird_respawn(
     transform_helper: TransformHelper,
 ) -> Result<()> {
     let translation = Vec2::new(-CANVAS_SIZE.x / 4.0, 0.0);
-    //spawn point with player size +10%
     let bird_collider = BoundingCircle::new(translation, PLAYER_SIZE / 2. * 1.1);
-    if !&pipe_segments.is_empty() {
-        for (sprite, entity) in &pipe_segments {
-            let pipe_transform = transform_helper.compute_global_transform(entity)?;
-            let pipe_collider = Aabb2d::new(
-                pipe_transform.translation().xy(),
-                sprite.custom_size.unwrap() / 2.,
-            );
 
-            if !bird_collider.intersects(&pipe_collider) {
-                warn! { "does not intersect "}
-                if !birdinv.0.is_empty() {
-                    birdinv.0.iter().for_each(|value| {
-                        commands.spawn(Bird::new(&*asset_server, false, *value));
-                    });
-                    birdinv.0.clear();
-                }
-            }
+    let has_intersected = pipe_segments.iter().any(|(sprite, entity)| {
+        let pipe_transform = transform_helper.compute_global_transform(entity).unwrap();
+        let pipe_collider = Aabb2d::new(
+            pipe_transform.translation().xy(),
+            sprite.custom_size.unwrap() / 2.,
+        );
+        bird_collider.intersects(&pipe_collider)
+    });
+
+    if !has_intersected {
+        for value in birdinv.0.drain(..) {
+            commands.spawn(Bird::new(&asset_server, false, value));
+            warn!("spawn {:?}", value)
         }
-    } else {
-        if !birdinv.0.is_empty() {
-            birdinv.0.iter().for_each(|value| {
-                commands.spawn(Bird::new(&*asset_server, false, *value));
-            });
-            birdinv.0.clear();
-        }
+
+        //warn!("{:?}", birdinv.0.len());
+        // drain already clears, no need for .clear()
     }
+
     Ok(())
 }
 

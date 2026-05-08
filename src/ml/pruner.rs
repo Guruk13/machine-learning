@@ -1,5 +1,5 @@
 // agent_pruning.rs
-//
+// This is clearly overshoot, but interesting to implement. Now that bird lifecycle is sane , it should be useless.
 // Entropy-based detection and pruning of under-performing agents in a
 // multi-agent FlappyBird setting.
 //
@@ -29,7 +29,7 @@ use burn::tensor::backend::AutodiffBackend;
 
 use crate::{FlappyGradientAgent, ml::EpisodeStep};
 use bevy::prelude::warn;
-use std::{collections::HashMap, panic};
+use std::collections::HashMap;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 1.  ENTROPY HELPERS
@@ -82,7 +82,7 @@ pub struct AgentStats {
     /// Total episodes recorded.
     pub episodes: u64,
 }
-
+//Exponential Moving Average (EMA)
 impl AgentStats {
     pub fn new(episodes: Option<u64>, entropy_ema: Option<f32>, score_ema: Option<f32>) -> Self {
         Self {
@@ -165,10 +165,10 @@ impl Default for PruningConfig {
             score_floor: -0.5, // tune to your reward scale
             score_alpha: 0.05,
 
-            warmup_episodes: 20,
+            warmup_episodes: 50,
             patience: 10,
 
-            noise_scale: 0.01,
+            noise_scale: 0.001,
         }
     }
 }
@@ -246,7 +246,8 @@ impl PopulationManager {
         {
             best_idx = *key;
         } else {
-            panic!("no best agent ... ")
+            warn!("no best agent ... ");
+            best_idx = *agents.keys().next().unwrap();
         }
 
         for &idx in &to_prune {

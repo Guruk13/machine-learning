@@ -35,8 +35,8 @@ impl Plugin for PipePlugin {
             FixedUpdate,
             (
                 despawn_pipes,
-                shift_pipes_to_the_left,
-                spawn_pipes.run_if(on_timer(Duration::from_millis(1000))),
+                //shift_pipes_to_the_left,
+                //spawn_pipes.run_if(on_timer(Duration::from_millis(1000))),
             ),
         );
     }
@@ -54,12 +54,14 @@ impl Plugin for BrainPlugin {
         };
 
         app.insert_non_send_resource(ressource);
-        app.add_systems(Update, bird_alive_reward);
         app.add_observer(bird_death_reward);
         app.add_observer(bird_pass_reward);
-        app.add_systems(Update, bird_bind_agent);
-        app.add_systems(Update, bird_alive_reward);
-        app.add_systems(FixedUpdate, think.in_set(GameSets::AI));
+        app.add_systems(
+            FixedUpdate,
+            (ApplyDeferred, bird_bind_agent, bird_alive_reward, think)
+                .chain()
+                .in_set(GameSets::AI),
+        );
     }
 }
 
@@ -161,17 +163,16 @@ fn despawn_pipes(mut commands: Commands, pipes: Query<(Entity, &Transform), With
     }
 }
 
+//this might spawn zombies if no proper check
 fn bird_bind_agent(
     mut commands: Commands,
-    query: Query<Entity, Added<Bird>>,
+    query: Query<(Entity, &Bird), Added<Bird>>,
     mut am_ressource: NonSendMut<AMRessource<MyAutodiffBackend>>,
 ) {
     //warn!("Nuée de : {:?}",&query.iter().count());
     for entity in &query {
-        am_ressource
-            .agent_manager
-            .bind_agent(entity.index().index());
-        commands.entity(entity).insert(AgentState::new(false));
+        am_ressource.agent_manager.bind_agent(entity.1.uid);
+        commands.entity(entity.0).insert(AgentState::new(false));
 
         //warn!("Debout , joli bouton d'or : {:?}",entity.index().to_string());
     }
@@ -182,24 +183,27 @@ fn bird_bind_agent(
 fn think(
     mut commands: Commands,
     birds: Query<
-        (Entity, &GameStateFeatures, &PartialReward, &AgentState),
+        (
+            Entity,
+            &GameStateFeatures,
+            &PartialReward,
+            &Bird,
+            &AgentState,
+        ),
         (With<Bird>, Without<Player>),
     >,
     mut am_ressource: NonSendMut<AMRessource<MyAutodiffBackend>>,
 ) {
-    //make birds think
     let all_birds: Vec<_> = birds.iter().collect();
 
     //warn!( "Look mom , no .... : {:?}",query.iter().count);
-    for (entity, state, reward, dead_state) in &all_birds {
-        let action: Action = am_ressource
-            .agent_manager
-            .select_action(&entity.index().index(), &state);
+    for (entity, state, reward, bird, dead_state) in &all_birds {
+        let uid = bird.uid;
+        let action: Action = am_ressource.agent_manager.select_action(uid, &state);
         //@todo match dead birds and exclude them from action "Jump"
         match action {
             Action::DoNothing => { /*  not because you pelican means you pelishould */ }
             Action::Jump => {
-                //warn!("Look mom , no user input  : {:?}", entity.index().to_string());
                 if !dead_state.is_dead {
                     commands.trigger(BirdJump(*entity));
                 }
@@ -212,30 +216,28 @@ fn think(
 
         am_ressource
             .agent_manager
-            .record_step(entity.index().index(), **state, action, reward);
+            .record_step(uid, **state, action, reward);
         commands.entity(*entity).remove::<PartialReward>();
-        //Gamestate has been processed , process bird's agent  stats
-        let birds_dead: Vec<_> = all_birds
-            .iter()
-            .filter(|(_, _, _, dead)| dead.is_dead == true)
-            .collect();
+    }
+    //Gamestate has been processed , process bird's agent  stats
+    let birds_dead: Vec<_> = all_birds
+        .iter()
+        .filter(|(_, _, _, _, dead)| dead.is_dead == true)
+        .collect();
 
-        for bird in &birds_dead {
-            am_ressource.agent_manager.bird_died(bird.0.index().index());
-        }
+    for bird in &birds_dead {
+        am_ressource.agent_manager.bird_died(bird.3.uid);
+    }
+    warn!("{:?}", birds_dead.len());
 
-        if !&birds_dead.is_empty() {
-            // drop the &
-            am_ressource.agent_manager.update_stats();
-            am_ressource.agent_manager.prune_agents();
-        }
+    if !&birds_dead.is_empty() {
+        am_ressource.agent_manager.update_stats();
+        am_ressource.agent_manager.prune_agents();
+    }
 
-        for bird in &birds_dead {
-            am_ressource
-                .agent_manager
-                .clear_episode(bird.0.index().index());
-            commands.entity(bird.0).insert(AgentState::new(false));
-        }
+    for bird in &birds_dead {
+        am_ressource.agent_manager.clear_episode(bird.3.uid);
+        commands.entity(bird.0).insert(AgentState::new(false));
     }
 }
 
@@ -316,14 +318,16 @@ fn bird_death_reward(
     birds: Query<(Entity, &Bird, Option<&PartialReward>)>,
     mut birdinv: ResMut<BirdInventory>,
 ) {
-    if let Ok((_entity, bird, partial_reward)) = birds.get(entity_event.bird) {
+    if let Ok((entity, bird, partial_reward)) = birds.get(entity_event.bird) {
         let new_score = match partial_reward {
             Some(score) => PartialReward(score.0 + RewardPrizes::default().dying),
             None => PartialReward(RewardPrizes::default().dying),
         };
         commands.entity(entity_event.bird).insert(new_score);
-        commands.entity(entity_event.bird).despawn();
-        birdinv.0.push(bird.uid);
+
+        if !birdinv.0.contains(&bird.uid) {
+            birdinv.0.push(bird.uid);
+        }
         commands
             .entity(entity_event.bird)
             .insert(AgentState::new(true));

@@ -26,8 +26,10 @@ pub struct ScorePoint {
 pub struct ScoreText;
 #[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
 pub enum GameSets {
-    Game,
-    AI,
+    Input,   // read player/agent intentions
+    Game,    // physics, collisions, bounds
+    Cleanup, // despawn, respawn
+    AI,      // think, bind agent
 }
 
 #[derive(Component, Debug)]
