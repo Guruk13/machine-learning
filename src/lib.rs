@@ -1,3 +1,4 @@
+use bevy::camera::primitives::Aabb;
 use bevy::{image::ImageLoaderSettings, prelude::*, time::common_conditions::on_timer};
 use burn::backend::Autodiff;
 use burn::backend::wgpu::Wgpu;
@@ -15,7 +16,7 @@ use burn::tensor::backend::AutodiffBackend;
 pub const CANVAS_SIZE: Vec2 = Vec2::new(480., 270.);
 pub const PLAYER_SIZE: f32 = 25.0;
 const PIPE_SIZE: Vec2 = Vec2::new(32., CANVAS_SIZE.y);
-const _GAP_SIZE: f32 = 100.0;
+const GAP_SIZE: f32 = 100.0;
 pub const PIPE_SPEED: f32 = 200.0;
 
 pub struct AMRessource<B: AutodiffBackend> {
@@ -35,8 +36,8 @@ impl Plugin for PipePlugin {
             FixedUpdate,
             (
                 despawn_pipes,
-                //shift_pipes_to_the_left,
-                //spawn_pipes.run_if(on_timer(Duration::from_millis(1000))),
+                shift_pipes_to_the_left,
+                spawn_pipes.run_if(on_timer(Duration::from_millis(1000))),
             ),
         );
     }
@@ -108,7 +109,7 @@ fn spawn_pipes(mut commands: Commands, asset_server: Res<AssetServer>, time: Res
 
     let transform = Transform::from_xyz(CANVAS_SIZE.x / 2., 0.0, 1.0);
     let gap_y_position = (time.elapsed_secs() * 4.2309875).sin() * CANVAS_SIZE.y / 4.;
-    let pipe_offset = PIPE_SIZE.y / 2.0 + _GAP_SIZE / 2.0;
+    let pipe_offset = PIPE_SIZE.y / 2.0 + GAP_SIZE / 2.0;
 
     commands.spawn((
         transform,
@@ -123,13 +124,17 @@ fn spawn_pipes(mut commands: Commands, asset_server: Res<AssetServer>, time: Res
                     ..default()
                 },
                 Transform::from_xyz(0.0, pipe_offset + gap_y_position, 1.0,),
-                PipeTop
+                PipeTop,
+                Aabb::from_min_max(
+                    Vec3::new(-PIPE_SIZE.x / 2.0, -PIPE_SIZE.y / 2.0, 0.0),
+                    Vec3::new(PIPE_SIZE.x / 2.0, PIPE_SIZE.y / 2.0, 0.0),
+                ),
             ),
             (
                 Visibility::Hidden,
                 Sprite {
                     color: Color::WHITE,
-                    custom_size: Some(Vec2::new(10.0, _GAP_SIZE,)),
+                    custom_size: Some(Vec2::new(10.0, GAP_SIZE,)),
                     ..default()
                 },
                 Transform::from_xyz(0.0, gap_y_position, 1.0,),
@@ -144,6 +149,10 @@ fn spawn_pipes(mut commands: Commands, asset_server: Res<AssetServer>, time: Res
                 },
                 Transform::from_xyz(0.0, -pipe_offset + gap_y_position, 1.0,),
                 PipeBottom,
+                Aabb::from_min_max(
+                    Vec3::new(-PIPE_SIZE.x / 2.0, -PIPE_SIZE.y / 2.0, 0.0),
+                    Vec3::new(PIPE_SIZE.x / 2.0, PIPE_SIZE.y / 2.0, 0.0),
+                ),
             )
         ],
     ));
@@ -198,6 +207,7 @@ fn think(
 
     //warn!( "Look mom , no .... : {:?}",query.iter().count);
     for (entity, state, reward, bird, dead_state) in &all_birds {
+        warn!("{:?}", state);
         let uid = bird.uid;
         let action: Action = am_ressource.agent_manager.select_action(uid, &state);
         //@todo match dead birds and exclude them from action "Jump"
@@ -228,7 +238,7 @@ fn think(
     for bird in &birds_dead {
         am_ressource.agent_manager.bird_died(bird.3.uid);
     }
-    warn!("{:?}", birds_dead.len());
+    // warn!("{:?}", birds_dead.len());
 
     if !&birds_dead.is_empty() {
         am_ressource.agent_manager.update_stats();
@@ -274,32 +284,36 @@ fn bird_alive_reward(
         (&Transform, &Velocity, Entity, Option<&PartialReward>),
         (With<Bird>, Without<Player>),
     >,
-    pipe_tops: Query<&GlobalTransform, With<PipeTop>>,
-    pipe_bottoms: Query<&GlobalTransform, With<PipeBottom>>,
+    pipe_tops: Query<(&GlobalTransform, &Aabb), With<PipeTop>>,
+    pipe_bottoms: Query<(&GlobalTransform, &Aabb), With<PipeBottom>>,
 ) {
     for (transform, velocity, entity, maybe_reward) in &birds {
         let calculated_velocity = Vec2::new(PIPE_SPEED, velocity.0).to_angle();
         let bird_y = transform.translation.y;
         let bird_x = transform.translation.x;
-        let nearest_top = pipe_tops.iter().find(|t| t.translation().x > bird_x);
-        let nearest_bottom = pipe_bottoms.iter().find(|t| t.translation().x > bird_x);
-        let dist_to_top = nearest_top
-            .map(|t| t.translation().y - bird_y)
+        let nearest_top = pipe_tops.iter().find(|t| t.0.translation().x > bird_x);
+        let nearest_bottom = pipe_bottoms.iter().find(|t| t.0.translation().x > bird_x);
+
+        let dist_x = nearest_top
+            .map(|t| t.0.translation().x - bird_x)
             .unwrap_or(500.0);
 
-        let dist_to_bottom = nearest_bottom
-            .map(|t| bird_y - t.translation().y)
+        // Then for top pipe: bottom edge = translation.y - half_extents.y
+        let nearest_top_edge = nearest_top
+            .map(|(t, aabb)| t.translation().y - aabb.half_extents.y)
             .unwrap_or(500.0);
-        let nearest_top_y = nearest_top.map(|t| t.translation().y).unwrap_or(-1.0);
-        let nearest_bottom_y = nearest_bottom.map(|t| t.translation().y).unwrap_or(-1.0);
+
+        // For bottom pipe: top edge = translation.y + half_extents.y
+        let nearest_bottom_edge = nearest_bottom
+            .map(|(t, aabb)| t.translation().y + aabb.half_extents.y)
+            .unwrap_or(-500.0);
 
         let state = GameStateFeatures {
             bird_y: transform.translation.y,
             bird_speed: calculated_velocity, //calculated_velocity,
-            next_pipe_top_y: nearest_top_y,
-            next_pipe_bottom_y: nearest_bottom_y,
-            dist_top: dist_to_top,
-            dist_bot: dist_to_bottom,
+            next_pipe_top_y: nearest_top_edge,
+            next_pipe_bottom_y: nearest_bottom_edge,
+            dist_x: dist_x,
         };
         commands.entity(entity).insert(state);
 

@@ -56,6 +56,8 @@ fn main() -> AppExit {
                 .run_if(any_with_component::<Player>)
                 .in_set(GameSets::Input),
         )
+        .add_systems(Startup, set_time_scale)
+        .add_systems(Update, toggle_pause)
         // Game
         .add_systems(
             FixedUpdate,
@@ -200,7 +202,7 @@ fn respawn_on_endgame(
 }
 
 fn spawn_birds(mut commands: Commands, asset_server: Res<AssetServer>) {
-    for n in 0..3 {
+    for n in 0..2 {
         commands.spawn(Bird::new(&*asset_server, false, n));
     }
 }
@@ -218,7 +220,7 @@ fn despawn_deads(
     for (entity, bird) in birds {
         birdinv.0.iter().for_each(|f| {
             if *f == bird.uid {
-                warn! {"there'll be another time {:?}", bird.uid}
+                //warn! {"there'll be another time {:?}", bird.uid}
                 commands.entity(entity).despawn();
             };
         });
@@ -318,7 +320,7 @@ fn bird_respawn(
     transform_helper: TransformHelper,
 ) -> Result<()> {
     let translation = Vec2::new(-CANVAS_SIZE.x / 4.0, 0.0);
-    let bird_collider = BoundingCircle::new(translation, PLAYER_SIZE / 2. * 1.1);
+    let bird_collider = BoundingCircle::new(translation, PLAYER_SIZE / 2. * 1.5); // spawn is clear of 50% a Bird's size
 
     let has_intersected = pipe_segments.iter().any(|(sprite, entity)| {
         let pipe_transform = transform_helper.compute_global_transform(entity).unwrap();
@@ -332,7 +334,7 @@ fn bird_respawn(
     if !has_intersected {
         for value in birdinv.0.drain(..) {
             commands.spawn(Bird::new(&asset_server, false, value));
-            warn!("spawn {:?}", value)
+            //warn!("spawn {:?}", value)
         }
 
         //warn!("{:?}", birdinv.0.len());
@@ -345,5 +347,21 @@ fn bird_respawn(
 fn on_bird_jump(event: On<BirdJump>, mut velocities: Query<&mut Velocity, With<Bird>>) {
     if let Ok(mut velocity) = velocities.get_mut(event.0) {
         velocity.0 = 400.; // this is the ONE place that knows how jumping works
+    }
+}
+
+//debug helper
+fn set_time_scale(mut time: ResMut<Time<Virtual>>) {
+    time.set_relative_speed(0.5); // 2x faster
+    // time.set_relative_speed(0.5); // half speed
+    // time.set_relative_speed(0.0); // pause
+}
+fn toggle_pause(mut time: ResMut<Time<Virtual>>, keys: Res<ButtonInput<KeyCode>>) {
+    if keys.just_pressed(KeyCode::Space) {
+        if time.is_paused() {
+            time.unpause();
+        } else {
+            time.pause();
+        }
     }
 }

@@ -31,7 +31,7 @@ impl<B: Backend> FlappyNet<B> {
     pub fn new(device: &B::Device) -> Self {
         Self {
             activation: Relu::new(),
-            linear1: LinearConfig::new(6, 16).init(device),
+            linear1: LinearConfig::new(5, 16).init(device),
             linear2: LinearConfig::new(16, 16).init(device),
             linear3: LinearConfig::new(16, 2).init(device),
         }
@@ -170,7 +170,7 @@ impl<B: AutodiffBackend> FlappyGradientAgent<B> {
             .iter()
             .flat_map(|s| s.state.to_array())
             .collect();
-        let states = Tensor::<B, 1>::from_floats(flat.as_slice(), &self.device).reshape([n, 6]);
+        let states = Tensor::<B, 1>::from_floats(flat.as_slice(), &self.device).reshape([n, 5]);
 
         // ── 3d. Build action indices [n] ─────────────────────────────────
         let action_idx: Vec<i64> = self.episode.iter().map(|s| s.action as i64).collect();
@@ -222,7 +222,7 @@ impl<B: AutodiffBackend> FlappyGradientAgent<B> {
     // ── helpers ────────────────────────────────────────────────────────────
 
     fn state_to_tensor(&self, s: &GameStateFeatures) -> Tensor<B, 2> {
-        Tensor::<B, 1>::from_floats(s.to_array().as_slice(), &self.device).reshape([1, 6])
+        Tensor::<B, 1>::from_floats(s.to_array().as_slice(), &self.device).reshape([1, 5])
     }
     // ─────────────────────────────────────────────────────────────────────────────
     // 6.  WEIGHT PERTURBATION  (for replacement)
@@ -247,19 +247,17 @@ pub struct GameStateFeatures {
     pub bird_speed: f32,
     pub next_pipe_top_y: f32,
     pub next_pipe_bottom_y: f32,
-    pub dist_top: f32,
-    pub dist_bot: f32,
+    pub dist_x: f32,
 }
 impl GameStateFeatures {
     /// Returns a flat [6] array — handy when building batch tensors manually.
-    pub fn to_array(&self) -> [f32; 6] {
+    pub fn to_array(&self) -> [f32; 5] {
         [
             self.bird_y,
             self.bird_speed,
             self.next_pipe_top_y,
             self.next_pipe_bottom_y,
-            self.dist_top,
-            self.dist_bot,
+            self.dist_x,
         ]
     }
 }

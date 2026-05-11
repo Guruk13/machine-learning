@@ -86,11 +86,11 @@ pub struct AgentStats {
 impl AgentStats {
     pub fn new(episodes: Option<u64>, entropy_ema: Option<f32>, score_ema: Option<f32>) -> Self {
         Self {
-            entropy_ema: entropy_ema.unwrap_or(1.0), // start at max entropy (uninitialised)
+            entropy_ema: 1.0, // start at max entropy (uninitialised)
             entropy_violation_streak: 0,
-            score_ema: score_ema.unwrap_or(0.0),
+            score_ema: 0.0,
             score_violation_streak: 0,
-            episodes: episodes.unwrap_or(0),
+            episodes: 0,
         }
     }
 
