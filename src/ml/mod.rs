@@ -108,8 +108,14 @@ impl<B: AutodiffBackend> FlappyGradientAgent<B> {
 
         // Average normalised entropy over the batch.
         let entropy_sum: f32 = raw
-            .chunks(2) // each chunk is one row: [p_nothing, p_jump]
-            .map(|row| normalised_entropy(row))
+            .chunks(2)
+            .map(|row| {
+                let e = normalised_entropy(row);
+                if !e.is_finite() {
+                    println!("bad entropy row: {:?}", row);
+                }
+                e
+            })
             .sum();
 
         self.entropy_sum += entropy_sum;
@@ -276,8 +282,8 @@ pub struct RewardPrizes {
 impl Default for RewardPrizes {
     fn default() -> Self {
         Self {
-            dying: -1.0,
-            pipe_cleared: 1.0,
+            dying: -5.0,
+            pipe_cleared: 10.0,
             alive: 0.01,
         }
     }

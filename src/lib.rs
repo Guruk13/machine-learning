@@ -207,7 +207,7 @@ fn think(
 
     //warn!( "Look mom , no .... : {:?}",query.iter().count);
     for (entity, state, reward, bird, dead_state) in &all_birds {
-        warn!("{:?}", state);
+        //warn!("{:?}", state);
         let uid = bird.uid;
         let action: Action = am_ressource.agent_manager.select_action(uid, &state);
         //@todo match dead birds and exclude them from action "Jump"
@@ -219,9 +219,9 @@ fn think(
                 }
             }
         }
-
+        let gap_centre = (state.next_pipe_top_y + state.next_pipe_bottom_y) / 2.0;
+        let gap_centre_penalty = (state.bird_y - gap_centre).abs() * 0.001;
         // Small bonus for staying near the centre of the gap
-        let gap_centre_penalty = (state.next_pipe_top_y - state.next_pipe_bottom_y).abs() * 0.001;
         let reward = **reward - gap_centre_penalty;
 
         am_ressource
@@ -250,10 +250,6 @@ fn think(
         commands.entity(bird.0).insert(AgentState::new(false));
     }
 }
-
-/* there is a duality , events and rewards are computed on "framerate update", "thinking" is a bruteforce thread which consumes ressources far too fast.
-in the system and event catcher below a RewardHolder is added , on fixed update (bruteforce) we look for component and run the computation if it is found
-. Game and Ai thread should balance out and meet in the middle with this hack.  */
 
 #[derive(Component)]
 pub struct AgentState {

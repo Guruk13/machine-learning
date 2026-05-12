@@ -185,8 +185,9 @@ impl Default for PruningConfig {
 ///
 pub fn measure_policy_entropy<B: AutodiffBackend>(agent: &FlappyGradientAgent<B>) -> f32 {
     let n = agent.episode.len();
-
-    //warn!("{:?}", agent.episode.len());
+    if n == 0 {
+        return 0.0;
+    }
     agent.entropy_sum / n as f32
 }
 
@@ -227,16 +228,27 @@ impl PopulationManager {
         agents: &mut HashMap<u32, FlappyGradientAgent<B>>,
     ) -> (Vec<u32>, u32) {
         let mut to_prune: Vec<u32> = Vec::new();
+        let mut warn = true;
         // ── Measure entropy for each agent ────────────────────────────────
         agents
             .iter_mut()
             .for_each(|(key, agent): (&u32, &mut FlappyGradientAgent<B>)| {
                 let entropy = measure_policy_entropy(agent);
+                //if (warn && *key == 1 as u32) {
+                //    warn!("{:?}", agent.stats.entropy_ema);
+                //    warn = true;
+                //}
+
                 agent.stats.entropy_ema = self.cfg.entropy_alpha * entropy
                     + (1.0 - self.cfg.entropy_alpha) * agent.stats.entropy_ema;
+            });
+
+        agents
+            .iter()
+            .for_each(|(key, agent): (&u32, &FlappyGradientAgent<B>)| {
                 if self.should_prune(agent.stats) {
                     to_prune.push(*key);
-                };
+                }
             });
         let best_idx: u32;
         if let Some((key, _agent)) = agents
