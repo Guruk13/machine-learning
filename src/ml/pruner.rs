@@ -1,5 +1,6 @@
 // agent_pruning.rs
-// This is clearly overshoot, but interesting to implement. Now that bird lifecycle is sane , it should be useless.
+// This is clearly overshoot, but interesting to implement. Now that the collection of the game state is fixed , this is of minor performance gain.
+
 // Entropy-based detection and pruning of under-performing agents in a
 // multi-agent FlappyBird setting.
 //
@@ -27,7 +28,9 @@
 
 use burn::tensor::backend::AutodiffBackend;
 
-use crate::{FlappyGradientAgent, ml::EpisodeStep};
+
+use super::model::{ FlappyGradientAgent};
+use super::agent_utils:: {AgentStats, AgentState, EpisodeStep}
 use bevy::prelude::warn;
 use std::collections::HashMap;
 
@@ -58,69 +61,6 @@ pub fn normalised_entropy(probs: &[f32]) -> f32 {
         return 1.0;
     }
     shannon_entropy(probs) / h_max
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// 2.  PER-AGENT STATISTICS
-// ─────────────────────────────────────────────────────────────────────────────
-
-/// Rolling statistics for one agent.
-#[derive(Debug, Copy, Clone)]
-pub struct AgentStats {
-    // ── Entropy tracking ──────────────────────────────────────────────────
-    /// EMA of normalised policy entropy (α = 0.1 by default).
-    pub entropy_ema: f32,
-    /// How many consecutive episodes entropy has been outside healthy range.
-    pub entropy_violation_streak: u32,
-
-    // ── Score tracking ────────────────────────────────────────────────────
-    /// EMA of episode total return (α = 0.05 by default).
-    pub score_ema: f32,
-    /// How many consecutive episodes the score has been below floor.
-    pub score_violation_streak: u32,
-
-    /// Total episodes recorded.
-    pub episodes: u64,
-}
-//Exponential Moving Average (EMA)
-impl AgentStats {
-    pub fn new(episodes: Option<u64>, entropy_ema: Option<f32>, score_ema: Option<f32>) -> Self {
-        Self {
-            entropy_ema: 1.0, // start at max entropy (uninitialised)
-            entropy_violation_streak: 0,
-            score_ema: 0.0,
-            score_violation_streak: 0,
-            episodes: 0,
-        }
-    }
-
-    /// Update EMAs after an episode.
-    ///
-    /// * `raw_entropy` – normalised entropy ∈ [0, 1] measured over the episode
-    /// * `episode_return` – sum of undiscounted rewards for the episode
-    pub fn update(&mut self, episode: Vec<EpisodeStep>, cfg: &PruningConfig) {
-        //warn!("{:?}", self.episodes);
-        let episode_return: f32 = episode.iter().fold(0.0, |acc, x| acc + x.reward);
-        // Score EMA
-        self.score_ema =
-            cfg.score_alpha * episode_return + (1.0 - cfg.score_alpha) * self.score_ema;
-
-        // Violation streaks
-        let entropy_ok =
-            self.entropy_ema >= cfg.entropy_floor && self.entropy_ema <= cfg.entropy_ceiling;
-        if entropy_ok {
-            self.entropy_violation_streak = 0;
-        } else {
-            self.entropy_violation_streak += 1;
-        }
-
-        let score_ok = self.score_ema >= cfg.score_floor;
-        if score_ok {
-            self.score_violation_streak = 0;
-        } else {
-            self.score_violation_streak += 1;
-        }
-    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -188,7 +128,7 @@ pub fn measure_policy_entropy<B: AutodiffBackend>(agent: &FlappyGradientAgent<B>
     if n == 0 {
         return 0.0;
     }
-    agent.entropy_sum / n as f32
+    agent.state.entropy_sum / n as f32
 }
 
 // a sum of entropy for a model. is defined within a trait since it comes attach itself to a forward function to reduce

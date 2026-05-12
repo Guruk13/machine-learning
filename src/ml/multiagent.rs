@@ -1,22 +1,17 @@
-use super::Action;
-use super::FlappyGradientAgent;
-use super::GameStateFeatures;
+use super::model::Action;
+use super::model::FlappyGradientAgent;
+use super::model::GameStateFeatures;
 //use bevy::ecs::error::warn;
 use bevy::prelude::warn;
 use burn::tensor::backend::AutodiffBackend;
 use std::collections::HashMap;
 
-use crate::get_optimizer;
-use crate::ml::AgentDefault;
-use crate::ml::pruner::AgentStats;
+use super::model::get_optimizer;
+use crate::ml::agent_utils::AgentState;
+use crate::ml::agent_utils::AgentStats;
+use crate::ml::model::AgentDefault;
 use crate::ml::pruner::PopulationManager;
 use crate::ml::pruner::PruningConfig;
-
-//following traits are not really usefull except for bind agent which *may* be influenced by the way you implement the backend , other than that there's not much to keep
-
-/* trait BindAgent<B: AutodiffBackend> {
-    fn bind_agent(&mut self, key: String, gamma: f32, lr: f64);
-} */
 
 pub struct AgentManager<B: AutodiffBackend> {
     pub inner: HashMap<u32, FlappyGradientAgent<B>>,
@@ -48,8 +43,7 @@ impl<B: AutodiffBackend> AgentManager<B> {
     pub fn bind_agent(&mut self, key: u32) {
         self.inner.entry(key).or_insert(FlappyGradientAgent::new(
             self.device.clone(),
-            AgentDefault::default().gamma,
-            AgentDefault::default().learning_rate,
+            AgentStats::new(),
         ));
     }
 
@@ -84,16 +78,9 @@ impl<B: AutodiffBackend> AgentManager<B> {
                 flappy: up_agent_net,
                 optimizer: optimizer,
                 device: self.device.clone(),
-                episode: Vec::new(),
-                gamma: AgentDefault::default().gamma,
-                lr: AgentDefault::default().learning_rate,
-                entropy_sum: 0.0,
+                state: AgentState::new();
                 //new agent from net but keep evaluating its progression
-                stats: AgentStats::new(
-                    Some(self.inner[&key].stats.episodes),
-                    Some(self.inner[&key].stats.entropy_ema),
-                    Some(self.inner[&key].stats.score_ema),
-                ),
+                stats: AgentStats::new(),
             };
             self.inner.insert(key, newagent);
         }
@@ -110,7 +97,7 @@ impl<B: AutodiffBackend> AgentManager<B> {
     pub fn clear_episode(&mut self, key: u32) {
         match self.inner.get_mut(&key) {
             Some(agent) => {
-                agent.episode.clear();
+                agent.state=   AgentState::new();
             }
             None => panic!("Agent '{}' not found", key),
         }

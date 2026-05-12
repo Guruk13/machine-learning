@@ -11,7 +11,7 @@ use bevy::{color::palettes::tailwind::RED_400, image::ImageLoaderSettings};
 use flappy_bird::*;
 
 use crate::player::*;
-use player::GameSets;
+use flappy_bird::BrainPlugin;
 
 fn main() -> AppExit {
     App::new()
