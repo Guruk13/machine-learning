@@ -229,7 +229,7 @@ fn despawn_deads(
 
 fn check_collisions(
     mut commands: Commands,
-    birds: Query<(&Sprite, Entity, Has<Player>), With<Bird>>,
+    birds: Query<(&Sprite, Entity, &Bird, Has<Player>), With<Bird>>,
     pipe_segments: Query<(&Sprite, Entity), Or<(With<PipeTop>, With<PipeBottom>)>>,
     pipe_gaps: Query<(&Sprite, Entity), With<PointsGate>>,
     mut gizmos: Gizmos,
@@ -256,9 +256,10 @@ fn check_collisions(
             );
             if bird_collider.intersects(&pipe_collider) {
                 //is_player
-                if bird.2 {
+                if bird.3 {
                     //commands.trigger(EndGame);
                 } else {
+                    bird.2.dead = true;
                     commands.trigger(BirdDeath { bird: bird.1 });
                 }
             }

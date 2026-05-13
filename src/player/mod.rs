@@ -14,9 +14,6 @@ pub struct Player;
 #[derive(Component, Debug)]
 pub struct Dead;
 
-#[derive(Resource, Default)]
-pub struct Score(pub u32);
-
 #[derive(Event)]
 pub struct ScorePoint {
     pub bird: Entity,
@@ -36,6 +33,8 @@ pub enum GameSets {
 #[require(Gravity(1000.), Velocity)]
 pub struct Bird {
     pub uid: u32,
+    pub dead: bool,
+    pub score: u32,
 }
 
 #[derive(Event)]
@@ -51,7 +50,11 @@ pub struct BirdJump(pub Entity);
 impl Bird {
     pub fn new(asset_server: &AssetServer, rand: bool, id: u32) -> (Bird, Sprite, Transform) {
         (
-            Bird { uid: id },
+            Bird {
+                uid: id,
+                dead: false,
+                score: 0,
+            },
             Sprite {
                 custom_size: Some(Vec2::splat(PLAYER_SIZE)),
                 image: asset_server.load("bevy-bird.png"),
@@ -73,3 +76,15 @@ impl Bird {
 
 #[derive(Resource, Default)]
 pub struct BirdInventory(pub Vec<u32>);
+
+#[derive(Component)]
+pub struct Pipe;
+
+#[derive(Component)]
+pub struct PipeTop;
+
+#[derive(Component)]
+pub struct PipeBottom;
+
+#[derive(Component)]
+pub struct PointsGate;

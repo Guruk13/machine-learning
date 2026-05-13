@@ -1,6 +1,6 @@
-use super::model::Action;
+use super::agent_utils::Action;
+use super::agent_utils::GameStateFeatures;
 use super::model::FlappyGradientAgent;
-use super::model::GameStateFeatures;
 //use bevy::ecs::error::warn;
 use bevy::prelude::warn;
 use burn::tensor::backend::AutodiffBackend;
@@ -9,9 +9,10 @@ use std::collections::HashMap;
 use super::model::get_optimizer;
 use crate::ml::agent_utils::AgentState;
 use crate::ml::agent_utils::AgentStats;
-use crate::ml::model::AgentDefault;
 use crate::ml::pruner::PopulationManager;
 use crate::ml::pruner::PruningConfig;
+//@todo make mod agentutils to prevent bad usage
+//mod agent_utils;
 
 pub struct AgentManager<B: AutodiffBackend> {
     pub inner: HashMap<u32, FlappyGradientAgent<B>>,
@@ -29,40 +30,23 @@ impl<B: AutodiffBackend> AgentManager<B> {
         }
     }
 
-    pub fn select_action(&mut self, key: u32 ) -> Action {
-        let action: Action;
-        if let Some(agent) = self.inner.get_mut(&key) {
-            action = agent.select_action();
-        } else {
-            warn!("agent not found '{}'", key);
-            action = Action::DoNothing;
-        }
-        action
-    }
-
-    pub fn bind_agent(&mut self, key: u32, game_state: GameState) -> &mut FlappyGradientAgent {
-        let agent = self.inner
+    pub fn bind_agent(
+        &mut self,
+        key: u32,
+        game_state: GameStateFeatures,
+    ) -> &mut FlappyGradientAgent<B> {
+        let agent = self
+            .inner
             .entry(key)
-            .or_insert_with(|| FlappyGradientAgent::new(
-                self.device.clone(),
-                game_state
-            ));
-        agent.state.current_gamestate = game_state;
+            .or_insert_with(|| FlappyGradientAgent::new(self.device.clone()));
+
+        agent.state.set_state_features(Some(game_state));
         agent
     }
 
     pub fn unbind_agent(&mut self, key: u32) {
         //remove *should* use the drop function which is freeing the memory of WGPU's garabage collector more efficiently
         self.inner.remove(&key);
-    }
-
-    /// Record one tick of experience for bird `i`.
-    pub fn record_step(&mut self, key: u32, state: GameStateFeatures, action: Action, reward: f32) {
-        //warn!("recording");
-        match self.inner.get_mut(&key) {
-            Some(agent) => agent.record_step(state, action, reward),
-            None => panic!("Agent '{}' not found", key),
-        }
     }
 
     // do the swap logic inline or call a free fn
@@ -82,10 +66,11 @@ impl<B: AutodiffBackend> AgentManager<B> {
                 flappy: up_agent_net,
                 optimizer: optimizer,
                 device: self.device.clone(),
-                state: AgentState::new();
+                state: AgentState::new(),
                 //new agent from net but keep evaluating its progression
                 stats: AgentStats::new(),
             };
+
             self.inner.insert(key, newagent);
         }
         self
@@ -95,13 +80,13 @@ impl<B: AutodiffBackend> AgentManager<B> {
         self.inner.iter_mut().for_each(|(_key, agent)| {
             agent
                 .stats
-                .update(agent.episode.clone(), &PruningConfig::default());
+                .update(agent.state.episode.clone(), &PruningConfig::default());
         });
     }
-    pub fn clear_episode(&mut self, key: u32) {
+    pub fn purge_states(&mut self, key: u32) {
         match self.inner.get_mut(&key) {
             Some(agent) => {
-                agent.state=   AgentState::new();
+                agent.state = AgentState::new();
             }
             None => panic!("Agent '{}' not found", key),
         }

@@ -1,8 +1,7 @@
 use super::pipes::*;
 use crate::ml::agent_utils::Action;
-use crate::player::{
-    Bird, BirdDeath, BirdInventory, BirdJump, GameSets, Player, ScorePoint, Velocity,
-};
+use crate::player::{Bird, BirdJump, GameSets, Player, Velocity};
+use crate::player::{PipeBottom, PipeTop};
 use bevy::camera::primitives::Aabb;
 use bevy::prelude::*;
 use burn::backend::Autodiff;
@@ -11,7 +10,7 @@ use burn::tensor::backend::AutodiffBackend;
 
 use crate::ml::multiagent::AgentManager;
 
-use crate::ml::agent_utils::{RewardPrizes, GameStateFeatures} ;
+use crate::ml::agent_utils::{GameStateFeatures, RewardPrizes};
 
 pub struct AMRessource<B: AutodiffBackend> {
     agent_manager: AgentManager<B>,
@@ -34,140 +33,28 @@ impl Plugin for BrainPlugin {
         };
 
         app.insert_non_send_resource(ressource);
-        app.add_observer(bird_death_reward);
-        app.add_observer(bird_pass_reward);
         app.add_systems(
             FixedUpdate,
-            (ApplyDeferred, bird_bind_agent, bird_alive_reward, think)
-                .chain()
-                .in_set(GameSets::AI),
+            (ApplyDeferred, think).chain().in_set(GameSets::AI),
         );
     }
 }
 
-#[derive(Component)]
-pub struct Pipe;
-
-#[derive(Component)]
-pub struct PipeTop;
-
-#[derive(Component)]
-pub struct PipeBottom;
-
-#[derive(Component)]
-pub struct PointsGate;
-
-//memories of a bird, "This is essentially a simple form of A3C (Asynchronous Advantage Actor-Critic)"
-//#[derive(Component, Default)]
-//pub struct BirdEpisode {
-//    pub steps: Vec<Step>,
-//}
-
-//this might spawn zombies if no proper check
-fn bird_bind_agent(
-    mut commands: Commands,
-    query: Query<(Entity, &Bird), Added<Bird>>,
-    mut am_ressource: NonSendMut<AMRessource<MyAutodiffBackend>>,
-) {
-    //warn!("Nuée de : {:?}",&query.iter().count());
-    for entity in &query {
-        am_ressource.agent_manager.bind_agent(entity.1.uid);
-        commands.entity(entity.0).insert(AgentState::new(false));
-
-        //warn!("Debout , joli bouton d'or : {:?}",entity.index().to_string());
-    }
-}
-
-//  Birds think .  what will you have after 500 years ?
-
+//Think Bird.  what will you have after 500 years ?
 fn think(
     mut commands: Commands,
-    birds: Query<
-        (
-            Entity,
-            &GameStateFeatures,
-            &PartialReward,
-            &Bird,
-            &AgentState,
-        ),
-        (With<Bird>, Without<Player>),
-    >,
+    birds: Query<(Entity, &Bird, &Transform, &Velocity), (With<Bird>, Without<Player>)>,
+
+    pipe_tops: Query<(&GlobalTransform, &Aabb), With<PipeTop>>,
+    pipe_bottoms: Query<(&GlobalTransform, &Aabb), With<PipeBottom>>,
     mut am_ressource: NonSendMut<AMRessource<MyAutodiffBackend>>,
 ) {
     let all_birds: Vec<_> = birds.iter().collect();
 
     //warn!( "Look mom , no .... : {:?}",query.iter().count);
-    for (entity, state, reward, bird, dead_state) in &all_birds {
-        //warn!("{:?}", state);
-        let uid = bird.uid;
-        let action: Action = am_ressource.agent_manager.select_action(uid, &state);
-        //@todo match dead birds and exclude them from action "Jump"
-        match action {
-            Action::DoNothing => { /*  not because you pelican means you pelishould */ }
-            Action::Jump => {
-                if !dead_state.is_dead {
-                    commands.trigger(BirdJump(*entity));
-                }
-            }
-        }
-        let gap_centre = (state.next_pipe_top_y + state.next_pipe_bottom_y) / 2.0;
-        let gap_centre_penalty = (state.bird_y - gap_centre).abs() * 0.001;
-        // Small bonus for staying near the centre of the gap
-        let reward = **reward - gap_centre_penalty;
-
-        am_ressource
-            .agent_manager
-            .record_step(uid, **state, action, reward);
-        commands.entity(*entity).remove::<PartialReward>();
-    }
-    //Gamestate has been processed , process bird's agent  stats
-    let birds_dead: Vec<_> = all_birds
-        .iter()
-        .filter(|(_, _, _, _, dead)| dead.is_dead == true)
-        .collect();
-
-    for bird in &birds_dead {
-        am_ressource.agent_manager.bird_died(bird.3.uid);
-    }
-    // warn!("{:?}", birds_dead.len());
-
-    if !&birds_dead.is_empty() {
-        am_ressource.agent_manager.update_stats();
-        am_ressource.agent_manager.prune_agents();
-    }
-
-    for bird in &birds_dead {
-        am_ressource.agent_manager.clear_episode(bird.3.uid);
-        commands.entity(bird.0).insert(AgentState::new(false));
-    }
-}
-
-
-
-
-#[derive(Component, Default, Clone, Copy)]
-pub struct PartialReward(pub f32);
-
-impl std::ops::Sub<f32> for PartialReward {
-    type Output = f32;
-    fn sub(self, rhs: f32) -> f32 {
-        self.0 - rhs
-    }
-}
-
-// bird is alive: reward it ,  snapshot its POV
-fn bird_alive_reward(
-    mut commands: Commands,
-    birds: Query<
-        (&Transform, &Velocity, Entity, Option<&PartialReward>),
-        (With<Bird>, Without<Player>),
-    >,
-    pipe_tops: Query<(&GlobalTransform, &Aabb), With<PipeTop>>,
-    pipe_bottoms: Query<(&GlobalTransform, &Aabb), With<PipeBottom>>,
-) {
-    for (transform, velocity, entity, maybe_reward) in &birds {
+    for (entity, bird, transform, velocity) in &all_birds {
         let calculated_velocity = Vec2::new(PIPE_SPEED, velocity.0).to_angle();
-        let bird_y = transform.translation.y;
+        //let bird_y = transform.translation.y;
         let bird_x = transform.translation.x;
         let nearest_top = pipe_tops.iter().find(|t| t.0.translation().x > bird_x);
         let nearest_bottom = pipe_bottoms.iter().find(|t| t.0.translation().x > bird_x);
@@ -193,45 +80,67 @@ fn bird_alive_reward(
             next_pipe_bottom_y: nearest_bottom_edge,
             dist_x: dist_x,
         };
-        commands.entity(entity).insert(state);
+        //get an agent , sync it with Bird's pov
+        let agent = am_ressource.agent_manager.bind_agent(bird.uid, state);
+        //forward
 
-        let new_score = match maybe_reward {
-            Some(score) => PartialReward(score.0 + RewardPrizes::default().alive), // increment
-            None => PartialReward(RewardPrizes::default().alive),                  // insert fresh
+        let action = agent.select_action();
+
+        //compute reward
+        let mut reward: f32 = if bird.dead {
+            RewardPrizes::default().dying
+        } else {
+            RewardPrizes::default().alive
         };
 
-        commands.entity(entity).insert(new_score);
-    }
-}
-//@Todo extract gameplay insert dead
-fn bird_death_reward(
-    entity_event: On<BirdDeath>,
-    mut commands: Commands,
-    birds: Query<(Entity, &Bird, Option<&PartialReward>)>,
-    mut birdinv: ResMut<BirdInventory>,
-) {
-    if let Ok((entity, bird, partial_reward)) = birds.get(entity_event.bird) {
-        let new_score = match partial_reward {
-            Some(score) => PartialReward(score.0 + RewardPrizes::default().dying),
-            None => PartialReward(RewardPrizes::default().dying),
-        };
-        commands.entity(entity_event.bird).insert(new_score);
-
-        if !birdinv.0.contains(&bird.uid) {
-            birdinv.0.push(bird.uid);
+        if bird.score > agent.state.score {
+            reward += RewardPrizes::default().pipe_cleared;
+            agent.state.score = bird.score;
         }
 
+        let gap_centre = (state.next_pipe_top_y + state.next_pipe_bottom_y) / 2.0;
+        let gap_centre_penalty = (state.bird_y - gap_centre).abs() * 0.001;
+        // Small bonus for staying near the centre of the gap
+        reward = reward - gap_centre_penalty;
+        //
+        agent.record_step(action.clone(), reward);
+        match action {
+            Action::DoNothing => { /*  not because you pelican means you pelishould */ }
+            Action::Jump => {
+                if !bird.dead {
+                    commands.trigger(BirdJump(*entity));
+                }
+            }
+        }
+    }
 
-fn bird_pass_reward(
-    entity_event: On<ScorePoint>,
-    mut commands: Commands,
-    birds: Query<(Entity, Option<&PartialReward>), With<Bird>>,
-) {
-    if let Ok((_entity, partial_reward)) = birds.get(entity_event.bird) {
-        let new_score = match partial_reward {
-            Some(score) => PartialReward(score.0 + RewardPrizes::default().pipe_cleared),
-            None => PartialReward(RewardPrizes::default().pipe_cleared),
-        };
-        commands.entity(entity_event.bird).insert(new_score);
+    //Gamestate has been processed , process bird's agent  stats
+    let birds_dead: Vec<_> = all_birds
+        .iter()
+        .filter(|(_, bird, _, _)| bird.dead == true)
+        .collect();
+
+    for bird in &birds_dead {
+        am_ressource.agent_manager.bird_died(bird.1.uid);
+    }
+    // warn!("{:?}", birds_dead.len());
+
+    if !&birds_dead.is_empty() {
+        am_ressource.agent_manager.update_stats();
+        am_ressource.agent_manager.prune_agents();
+    }
+
+    for bird in &birds_dead {
+        am_ressource.agent_manager.purge_states(bird.1.uid);
+    }
+}
+
+#[derive(Component, Default, Clone, Copy)]
+pub struct PartialReward(pub f32);
+
+impl std::ops::Sub<f32> for PartialReward {
+    type Output = f32;
+    fn sub(self, rhs: f32) -> f32 {
+        self.0 - rhs
     }
 }

@@ -1,10 +1,12 @@
+use crate::player::{Pipe, PipeBottom, PipeTop, PointsGate};
 use bevy::camera::primitives::Aabb;
 use bevy::{image::ImageLoaderSettings, prelude::*, time::common_conditions::on_timer};
 use std::time::Duration;
+
 pub const CANVAS_SIZE: Vec2 = Vec2::new(480., 270.);
 
 pub const PLAYER_SIZE: f32 = 25.0;
-pub const PIPE_SIZE: vec2 = vec2::new(32., canvas_size.y);
+pub const PIPE_SIZE: Vec2 = Vec2::new(32., CANVAS_SIZE.y);
 pub const GAP_SIZE: f32 = 100.0;
 pub const PIPE_SPEED: f32 = 200.0;
 

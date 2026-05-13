@@ -1,3 +1,5 @@
+use crate::player::GameSets;
+
 use super::pruner::PruningConfig;
 use bevy::prelude::Component;
 
@@ -118,20 +120,29 @@ impl Default for RewardPrizes {
 #[derive(Component)]
 pub struct AgentState {
     pub is_dead: bool,
-    pub current_gamestate: GameStateFeatures,
+    pub current_gamestate: Option<GameStateFeatures>,
     pub episode: Vec<EpisodeStep>, //@ref
+
+    pub score: u32,
 }
 
 impl AgentState {
-    pub fn new(is_dead: bool, state: GameStateFeatures) -> Self {
+    pub fn new() -> Self {
         Self {
-            is_dead: is_dead,
-            current_gamestate: state,
+            is_dead: false,
+            current_gamestate: None,
             episode: vec![], //@ref
+            score: 0,
         }
-        //        commands
-        //            .entity(entity_event.bird)
-        //            .insert(AgentState::new(true));
+    }
+    //destroys current game state
+    pub fn get_state_features(&mut self) -> GameStateFeatures {
+        self.current_gamestate
+            .take()
+            .expect("no game state on this agent")
+    }
+    pub fn set_state_features(&mut self, state: Option<GameStateFeatures>) {
+        self.current_gamestate = state;
     }
 }
 /** In ML, gamma (γ) is the discount factor used in reinforcement learning (RL).

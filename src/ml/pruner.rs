@@ -123,11 +123,11 @@ impl Default for PruningConfig {
 /// Returns a value in [0, 1].
 ///
 pub fn measure_policy_entropy<B: AutodiffBackend>(agent: &FlappyGradientAgent<B>) -> f32 {
-    let n = agent.episode.len();
+    let n = agent.state.episode.len();
     if n == 0 {
         return 0.0;
     }
-    agent.state.entropy_sum / n as f32
+    agent.stats.entropy_sum / n as f32
 }
 
 // a sum of entropy for a model. is defined within a trait since it comes attach itself to a forward function to reduce
@@ -167,7 +167,7 @@ impl PopulationManager {
         agents: &mut HashMap<u32, FlappyGradientAgent<B>>,
     ) -> (Vec<u32>, u32) {
         let mut to_prune: Vec<u32> = Vec::new();
-        let mut warn = true;
+        //let mut warn = true;
         // ── Measure entropy for each agent ────────────────────────────────
         agents
             .iter_mut()

@@ -7,9 +7,7 @@ use burn::{
     tensor::{Distribution, Tensor, activation::softmax, backend::AutodiffBackend},
 };
 
-use crate::ml::agent_utils::AgentDefault;
-
-use super::agent_utils::{Action, AgentState, AgentStats, EpisodeStep};
+use super::agent_utils::{Action, AgentDefault, AgentState, AgentStats, EpisodeStep};
 use super::pruner::normalised_entropy;
 pub const OPTIMIZER_EPSILON: f32 = 1e-7;
 
@@ -64,7 +62,7 @@ pub struct FlappyGradientAgent<B: AutodiffBackend> {
 }
 
 impl<B: AutodiffBackend> FlappyGradientAgent<B> {
-    pub fn new(device: B::Device, game_state: super::agent_utils::GameStateFeatures) -> Self {
+    pub fn new(device: B::Device) -> Self {
         let flappy = FlappyNet::new(&device);
 
         let optimizer = get_optimizer();
@@ -72,7 +70,7 @@ impl<B: AutodiffBackend> FlappyGradientAgent<B> {
             flappy,
             optimizer,
             device,
-            state: AgentState::new(false, game_state),
+            state: AgentState::new(),
             stats: AgentStats::new(),
         }
     }
@@ -122,7 +120,7 @@ impl<B: AutodiffBackend> FlappyGradientAgent<B> {
 
     /// Call once per game tick after the environment returns a reward.
     pub fn record_step(&mut self, action: Action, reward: f32) {
-        let state = self.state.current_gamestate;
+        let state = self.state.get_state_features();
         self.state.episode.push(EpisodeStep {
             state,
             action,
@@ -217,7 +215,7 @@ impl<B: AutodiffBackend> FlappyGradientAgent<B> {
     // ── helpers ────────────────────────────────────────────────────────────
 
     fn state_to_tensor(&self) -> Tensor<B, 2> {
-        let s = self.state.current_gamestate;
+        let s = self.state.current_gamestate.unwrap();
         Tensor::<B, 1>::from_floats(s.to_array().as_slice(), &self.device).reshape([1, 5])
     }
     // ─────────────────────────────────────────────────────────────────────────────
