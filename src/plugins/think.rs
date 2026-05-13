@@ -143,8 +143,7 @@ fn think(
 }
 
 
-    }
-}
+
 
 #[derive(Component, Default, Clone, Copy)]
 pub struct PartialReward(pub f32);

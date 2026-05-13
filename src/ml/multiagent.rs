@@ -29,10 +29,10 @@ impl<B: AutodiffBackend> AgentManager<B> {
         }
     }
 
-    pub fn select_action(&mut self, key: u32, state: &GameStateFeatures) -> Action {
+    pub fn select_action(&mut self, key: u32 ) -> Action {
         let action: Action;
         if let Some(agent) = self.inner.get_mut(&key) {
-            action = agent.select_action(state);
+            action = agent.select_action();
         } else {
             warn!("agent not found '{}'", key);
             action = Action::DoNothing;
@@ -40,11 +40,15 @@ impl<B: AutodiffBackend> AgentManager<B> {
         action
     }
 
-    pub fn bind_agent(&mut self, key: u32) {
-        self.inner.entry(key).or_insert(FlappyGradientAgent::new(
-            self.device.clone(),
-            AgentStats::new(),
-        ));
+    pub fn bind_agent(&mut self, key: u32, game_state: GameState) -> &mut FlappyGradientAgent {
+        let agent = self.inner
+            .entry(key)
+            .or_insert_with(|| FlappyGradientAgent::new(
+                self.device.clone(),
+                game_state
+            ));
+        agent.state.current_gamestate = game_state;
+        agent
     }
 
     pub fn unbind_agent(&mut self, key: u32) {

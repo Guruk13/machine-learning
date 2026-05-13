@@ -118,10 +118,8 @@ impl Default for RewardPrizes {
 #[derive(Component)]
 pub struct AgentState {
     pub is_dead: bool,
-    // you could fold GameStateFeatures in here too
     pub current_gamestate: GameStateFeatures,
-    pub episode: Vec<EpisodeStep>,
-    //
+    pub episode: Vec<EpisodeStep>, //@ref
 }
 
 impl AgentState {
@@ -129,7 +127,7 @@ impl AgentState {
         Self {
             is_dead: is_dead,
             current_gamestate: state,
-            episode: vec![],
+            episode: vec![], //@ref
         }
         //        commands
         //            .entity(entity_event.bird)
@@ -137,14 +135,13 @@ impl AgentState {
     }
 }
 /** In ML, gamma (γ) is the discount factor used in reinforcement learning (RL).
- * In ML, gamma (γ) is the discount factor used in reinforcement learning (RL).
  * It's a value between 0 and 1 that determines how much an agent values future rewards relative to immediate rewards.
 The Bellman Equation Context
 Gamma appears in the return (cumulative reward) calculation:
 G_t = r_t + γ·r_{t+1} + γ²·r_{t+2} + γ³·r_{t+3} + ...
 What the Value Means
-GammaBehaviorγ = 0Fully myopic — only cares about the immediate next rewardγ →
-1Fully far-sighted — values future rewards almost as much as current onesγ = 0.99Common default — slight preference for sooner rewards */
+GammaBehaviorγ = 0 Fully myopic — only cares about the immediate next rewardγ →
+1Fully far-sighted — values future rewards almost as much as current onesγ = 0.99 Common default — slight preference for sooner rewards */
 
 pub struct AgentDefault {
     pub gamma: f32,
@@ -158,12 +155,4 @@ impl Default for AgentDefault {
             learning_rate: 1e-3,
         }
     }
-}
-
-#[derive(Debug, Clone)]
-pub struct Step {
-    pub state: GameStateFeatures,
-    pub jumped: bool,
-    pub prob: f32, // the raw sigmoid output at that frame
-    pub reward: f32,
 }

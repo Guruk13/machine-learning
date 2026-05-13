@@ -28,9 +28,8 @@
 
 use burn::tensor::backend::AutodiffBackend;
 
-
-use super::model::{ FlappyGradientAgent};
-use super::agent_utils:: {AgentStats, AgentState, EpisodeStep}
+use super::agent_utils::{AgentState, AgentStats, EpisodeStep};
+use super::model::FlappyGradientAgent;
 use bevy::prelude::warn;
 use std::collections::HashMap;
 

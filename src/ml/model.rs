@@ -9,7 +9,6 @@ use burn::{
 
 use crate::ml::agent_utils::AgentDefault;
 
-
 use super::agent_utils::{Action, AgentState, AgentStats, EpisodeStep};
 use super::pruner::normalised_entropy;
 pub const OPTIMIZER_EPSILON: f32 = 1e-7;
@@ -65,7 +64,7 @@ pub struct FlappyGradientAgent<B: AutodiffBackend> {
 }
 
 impl<B: AutodiffBackend> FlappyGradientAgent<B> {
-    pub fn new(device: B::Device) -> Self {
+    pub fn new(device: B::Device, game_state: super::agent_utils::GameStateFeatures) -> Self {
         let flappy = FlappyNet::new(&device);
 
         let optimizer = get_optimizer();
@@ -73,8 +72,8 @@ impl<B: AutodiffBackend> FlappyGradientAgent<B> {
             flappy,
             optimizer,
             device,
-            AgentState::new(),
-            AgentStats::new(),
+            state: AgentState::new(false, game_state),
+            stats: AgentStats::new(),
         }
     }
 
@@ -83,7 +82,7 @@ impl<B: AutodiffBackend> FlappyGradientAgent<B> {
     /// Sample an action from the flappy distribution.
     /// Returns (action, log_prob) — log_prob not needed at call-site but
     /// useful for debugging / entropy logging.
-    pub fn select_action(&mut self ) -> Action {
+    pub fn select_action(&mut self) -> Action {
         let input = self.state_to_tensor(); // [1, 6]
         // Run in no-grad context — we only need probabilities here.
         let probs = self.flappy.forward(input); // [1, 2]
@@ -157,7 +156,8 @@ impl<B: AutodiffBackend> FlappyGradientAgent<B> {
 
         // ── 3c. Build state batch tensor  [n, 6] ─────────────────────────
         let flat: Vec<f32> = self
-            .state.episode
+            .state
+            .episode
             .iter()
             .flat_map(|s| s.state.to_array())
             .collect();
@@ -216,7 +216,7 @@ impl<B: AutodiffBackend> FlappyGradientAgent<B> {
 
     // ── helpers ────────────────────────────────────────────────────────────
 
-    fn state_to_tensor(&self,) -> Tensor<B, 2> {
+    fn state_to_tensor(&self) -> Tensor<B, 2> {
         let s = self.state.current_gamestate;
         Tensor::<B, 1>::from_floats(s.to_array().as_slice(), &self.device).reshape([1, 5])
     }
