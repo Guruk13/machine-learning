@@ -59,6 +59,9 @@ pub struct FlappyGradientAgent<B: AutodiffBackend> {
     pub state: AgentState,
     /// Discount factor γ
     pub stats: AgentStats,
+
+    #[cfg(feature = "tracker")]
+    pub tracker: Arc<RwLock<dqn_tracker::Agent>>,
 }
 
 impl<B: AutodiffBackend> FlappyGradientAgent<B> {
@@ -126,6 +129,7 @@ impl<B: AutodiffBackend> FlappyGradientAgent<B> {
             action,
             reward,
         });
+        self.push_episode_to_tracker(); // no-op on WASM, real push on native
     }
 
     /// Call when the bird dies (episode ends).
@@ -232,6 +236,15 @@ impl<B: AutodiffBackend> FlappyGradientAgent<B> {
             device: self.device.clone(),
         };
         self.flappy.clone().map(&mut mapper)
+    }
+    fn push_episode_to_tracker(&self) {
+        #[cfg(feature = "tracker")]
+        {
+            let mut t = self.tracker.write().unwrap();
+            t.episodes.push(self.state.score as f64);
+            t.epsilon = self.stats.entropy_ema as f64;
+        }
+        // compiles to nothing on WASM
     }
 }
 

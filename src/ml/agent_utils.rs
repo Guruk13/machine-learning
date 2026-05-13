@@ -1,5 +1,3 @@
-use crate::player::GameSets;
-
 use super::pruner::PruningConfig;
 use bevy::prelude::Component;
 

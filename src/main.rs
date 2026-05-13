@@ -56,8 +56,6 @@ fn main() -> AppExit {
                 .run_if(any_with_component::<Player>)
                 .in_set(GameSets::Input),
         )
-        .add_systems(Startup, set_time_scale)
-        .add_systems(Update, toggle_pause)
         // Game
         .add_systems(
             FixedUpdate,
@@ -68,11 +66,13 @@ fn main() -> AppExit {
         // usually you'd rather move an entity instead of despawn /respawn.
         // here pipes can obstruct the spawn point. spawn a bird only in somewhat fair conditions
         .add_systems(
-            FixedUpdate,
+            FixedPostUpdate,
             (ApplyDeferred, despawn_deads, bird_respawn)
                 .chain()
                 .in_set(GameSets::Cleanup),
         )
+        .add_systems(Startup, set_time_scale)
+        .add_systems(Update, toggle_pause)
         // AI
         .add_plugins(BrainPlugin)
         .run()
@@ -159,16 +159,17 @@ fn controls(
 }
 
 fn check_in_bounds(
-    birds: Query<(Entity, &Transform, Has<Player>), With<Bird>>,
+    mut birds: Query<(Entity, &Transform, &mut Bird, Has<Player>), With<Bird>>,
     mut commands: Commands,
 ) {
     let wheelie_bounds = false;
     // check each bird
-    for (entity, transform, is_player) in birds.iter() {
+    for (entity, transform, mut bird, is_player) in birds.iter_mut() {
         if !wheelie_bounds {
             if transform.translation.y < -CANVAS_SIZE.y / 2.0 - PLAYER_SIZE
                 || transform.translation.y > CANVAS_SIZE.y / 2.0 + PLAYER_SIZE
             {
+                bird.dead = true;
                 if is_player {
                     commands.trigger(EndGame);
                 } else {
@@ -213,30 +214,30 @@ fn _spawn_player(mut commands: Commands, asset_server: Res<AssetServer>) {
 
 fn despawn_deads(
     mut commands: Commands,
-    birdinv: Res<BirdInventory>,
+    mut birdinv: ResMut<BirdInventory>,
     birds: Query<(Entity, &Bird)>,
 ) {
     //warn! {"there'll be another time"};
     for (entity, bird) in birds {
-        birdinv.0.iter().for_each(|f| {
-            if *f == bird.uid {
-                //warn! {"there'll be another time {:?}", bird.uid}
-                commands.entity(entity).despawn();
-            };
-        });
+        if bird.dead {
+            //warn! {"there'll be another time {:?}", bird.uid}
+            commands.entity(entity).despawn();
+
+            birdinv.0.push(bird.uid)
+        };
     }
 }
 
 fn check_collisions(
     mut commands: Commands,
-    birds: Query<(&Sprite, Entity, &Bird, Has<Player>), With<Bird>>,
+    mut birds: Query<(Entity, &mut Bird, Has<Player>), With<Bird>>,
     pipe_segments: Query<(&Sprite, Entity), Or<(With<PipeTop>, With<PipeBottom>)>>,
     pipe_gaps: Query<(&Sprite, Entity), With<PointsGate>>,
     mut gizmos: Gizmos,
     transform_helper: TransformHelper,
 ) -> Result<()> {
-    for bird in birds.iter() {
-        let bird_transform = transform_helper.compute_global_transform(bird.1)?;
+    for mut bird in birds.iter_mut() {
+        let bird_transform = transform_helper.compute_global_transform(bird.0)?;
         let bird_collider =
             BoundingCircle::new(bird_transform.translation().xy(), PLAYER_SIZE / 2.);
 
@@ -256,11 +257,11 @@ fn check_collisions(
             );
             if bird_collider.intersects(&pipe_collider) {
                 //is_player
-                if bird.3 {
+                if bird.2 {
                     //commands.trigger(EndGame);
                 } else {
-                    bird.2.dead = true;
-                    commands.trigger(BirdDeath { bird: bird.1 });
+                    bird.1.dead = true;
+                    commands.trigger(BirdDeath { bird: bird.0 });
                 }
             }
         }
@@ -279,7 +280,7 @@ fn check_collisions(
             );
 
             if bird_collider.intersects(&gap_collider) {
-                commands.trigger(ScorePoint { bird: bird.1 });
+                commands.trigger(ScorePoint { bird: bird.0 });
             }
         }
     }

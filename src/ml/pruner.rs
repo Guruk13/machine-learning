@@ -28,7 +28,7 @@
 
 use burn::tensor::backend::AutodiffBackend;
 
-use super::agent_utils::{AgentState, AgentStats, EpisodeStep};
+use super::agent_utils::AgentStats;
 use super::model::FlappyGradientAgent;
 use bevy::prelude::warn;
 use std::collections::HashMap;
@@ -171,7 +171,7 @@ impl PopulationManager {
         // ── Measure entropy for each agent ────────────────────────────────
         agents
             .iter_mut()
-            .for_each(|(key, agent): (&u32, &mut FlappyGradientAgent<B>)| {
+            .for_each(|(_key, agent): (&u32, &mut FlappyGradientAgent<B>)| {
                 let entropy = measure_policy_entropy(agent);
                 //if (warn && *key == 1 as u32) {
                 //    warn!("{:?}", agent.stats.entropy_ema);
@@ -225,35 +225,7 @@ impl PopulationManager {
         agent_stats.entropy_violation_streak >= self.cfg.patience
             || agent_stats.score_violation_streak >= self.cfg.patience
     }
-    // ── Convenience getters ───────────────────────────────────────────────
 
-    /*pub fn best_agent_idx(&self) -> usize {
-        (0..self.agents.len())
-            .max_by(|&a, &b| {
-                self.stats[a]
-                    .score_ema
-                    .partial_cmp(&self.stats[b].score_ema)
-                    .unwrap()
-            })
-            .unwrap_or(0)
-    }*/
-
-    /// Print a summary table to stdout (useful during training).
-    /* pub fn print_stats(stats: AgentStats) {
-        println!(
-            "{:>5}  {:>8}  {:>12}  {:>10}  {:>10}",
-            "agent", "episodes", "entropy_ema", "score_ema", "violations"
-        );
-        println!(
-            "{:>5}  {:>8}  {:>12.4}  {:>10.3}  e:{} s:{}",
-            stats.agent_id,
-            stats.episodes,
-            stats.entropy_ema,
-            stats.score_ema,
-            stats.entropy_violation_streak,
-            stats.score_violation_streak,
-        );
-    }*/
     /// Human-readable reason for pruning (for logging).
     pub fn prune_reason(&self, stats: AgentStats) -> &'static str {
         if stats.entropy_ema < self.cfg.entropy_floor {

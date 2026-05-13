@@ -19,6 +19,9 @@ pub struct ScorePoint {
     pub bird: Entity,
 }
 
+#[derive(Resource, Default)]
+pub struct Score(pub u32);
+
 #[derive(Component)]
 pub struct ScoreText;
 #[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
