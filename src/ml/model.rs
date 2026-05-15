@@ -28,7 +28,7 @@ impl<B: Backend> FlappyNet<B> {
     pub fn new(device: &B::Device) -> Self {
         Self {
             activation: Relu::new(),
-            linear1: LinearConfig::new(5, 16).init(device),
+            linear1: LinearConfig::new(8, 16).init(device),
             linear2: LinearConfig::new(16, 16).init(device),
             linear3: LinearConfig::new(16, 2).init(device),
         }
@@ -59,9 +59,6 @@ pub struct FlappyGradientAgent<B: AutodiffBackend> {
     pub state: AgentState,
     /// Discount factor γ
     pub stats: AgentStats,
-
-    #[cfg(feature = "tracker")]
-    pub tracker: Arc<RwLock<dqn_tracker::Agent>>,
 }
 
 impl<B: AutodiffBackend> FlappyGradientAgent<B> {
@@ -129,7 +126,6 @@ impl<B: AutodiffBackend> FlappyGradientAgent<B> {
             action,
             reward,
         });
-        self.push_episode_to_tracker(); // no-op on WASM, real push on native
     }
 
     /// Call when the bird dies (episode ends).
@@ -163,7 +159,7 @@ impl<B: AutodiffBackend> FlappyGradientAgent<B> {
             .iter()
             .flat_map(|s| s.state.to_array())
             .collect();
-        let states = Tensor::<B, 1>::from_floats(flat.as_slice(), &self.device).reshape([n, 5]);
+        let states = Tensor::<B, 1>::from_floats(flat.as_slice(), &self.device).reshape([n, 8]);
 
         // ── 3d. Build action indices [n] ─────────────────────────────────
         let action_idx: Vec<i64> = self.state.episode.iter().map(|s| s.action as i64).collect();
@@ -220,7 +216,7 @@ impl<B: AutodiffBackend> FlappyGradientAgent<B> {
 
     fn state_to_tensor(&self) -> Tensor<B, 2> {
         let s = self.state.current_gamestate.unwrap();
-        Tensor::<B, 1>::from_floats(s.to_array().as_slice(), &self.device).reshape([1, 5])
+        Tensor::<B, 1>::from_floats(s.to_array().as_slice(), &self.device).reshape([1, 8])
     }
     // ─────────────────────────────────────────────────────────────────────────────
     // 6.  WEIGHT PERTURBATION  (for replacement)
@@ -236,15 +232,6 @@ impl<B: AutodiffBackend> FlappyGradientAgent<B> {
             device: self.device.clone(),
         };
         self.flappy.clone().map(&mut mapper)
-    }
-    fn push_episode_to_tracker(&self) {
-        #[cfg(feature = "tracker")]
-        {
-            let mut t = self.tracker.write().unwrap();
-            t.episodes.push(self.state.score as f64);
-            t.epsilon = self.stats.entropy_ema as f64;
-        }
-        // compiles to nothing on WASM
     }
 }
 

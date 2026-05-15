@@ -10,14 +10,11 @@ use crate::ml::agent_utils::AgentState;
 use crate::ml::agent_utils::AgentStats;
 use crate::ml::pruner::PopulationManager;
 use crate::ml::pruner::PruningConfig;
+
 //@todo make mod agentutils to prevent bad usage
 //mod agent_utils;
-
-pub struct AgentMap<B: AutodiffBackend> {
+pub struct AgentManager<B: AutodiffBackend> {
     pub inner: HashMap<u32, FlappyGradientAgent<B>>,
-
-    #[cfg(feature = "tracker")]
-    pub trackers: HashMap<u32, Arc<RwLock<dqn_tracker::Agent>>>,
     device: B::Device,
     pop: PopulationManager,
 }
@@ -29,8 +26,6 @@ impl<B: AutodiffBackend> AgentManager<B> {
             device: device,
             inner: HashMap::new(),
             pop: PopulationManager::new(),
-            #[cfg(feature = "tracker")]
-            registry: dqn_tracker::AgentRegistry::new(),
         }
     }
 
@@ -108,19 +103,4 @@ impl<B: AutodiffBackend> AgentManager<B> {
             None => panic!("Agent '{}' not found", key),
         }
     }
-
-    impl<B: AutodiffBackend> AgentMap<B> {
-        pub fn on_episode_end(&mut self, id: u32) {
-            #[cfg(feature = "tracker")]
-            if let (Some(agent), Some(tracker)) = (self.inner.get(&id), self.trackers.get(&id)) {
-                let mut t = tracker.write().unwrap();
-                t.episodes.push(agent.state.score as f64);
-                t.epsilon = agent.stats.entropy_ema as f64;
-            }
-        }
-    }
-
-
-
-
 }

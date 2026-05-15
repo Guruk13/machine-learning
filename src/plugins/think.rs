@@ -43,7 +43,7 @@ impl Plugin for BrainPlugin {
 //Think Bird.  what will you have after 500 years ?
 fn think(
     mut commands: Commands,
-    birds: Query<(Entity, &Bird, &Transform, &Velocity), (With<Bird>, Without<Player>)>,
+    birds: Query<(Entity, &Bird, &Transform, &Velocity, &Aabb), (With<Bird>, Without<Player>)>,
 
     pipe_tops: Query<(&GlobalTransform, &Aabb), With<PipeTop>>,
     pipe_bottoms: Query<(&GlobalTransform, &Aabb), With<PipeBottom>>,
@@ -52,34 +52,73 @@ fn think(
     let all_birds: Vec<_> = birds.iter().collect();
 
     //warn!( "Look mom , no .... : {:?}",query.iter().count);
-    for (entity, bird, transform, velocity) in &all_birds {
+    for (entity, bird, transform, velocity, bird_aabb) in &all_birds {
         let calculated_velocity = Vec2::new(PIPE_SPEED, velocity.0).to_angle();
         //let bird_y = transform.translation.y;
         let bird_x = transform.translation.x;
-        let nearest_top = pipe_tops.iter().find(|t| t.0.translation().x > bird_x);
-        let nearest_bottom = pipe_bottoms.iter().find(|t| t.0.translation().x > bird_x);
+        let mut pipes_above = pipe_tops.iter().filter(|t| {
+            t.0.translation().x + t.1.half_extents.x > bird_x - bird_aabb.half_extents.x
+        });
+        let nearest_top = pipes_above.next();
+        let second_top = pipes_above.next();
 
-        let dist_x = nearest_top
-            .map(|t| t.0.translation().x - bird_x)
-            .unwrap_or(500.0);
+        let mut pipes_below = pipe_bottoms.iter().filter(|t| {
+            t.0.translation().x + t.1.half_extents.x > bird_x - bird_aabb.half_extents.x
+        });
+        let nearest_bottom = pipes_below.next();
+        let second_bottom = pipes_below.next();
 
         // Then for top pipe: bottom edge = translation.y - half_extents.y
-        let nearest_top_edge = nearest_top
+        let nearest_top_bottom_edge = nearest_top
             .map(|(t, aabb)| t.translation().y - aabb.half_extents.y)
             .unwrap_or(500.0);
 
-        // For bottom pipe: top edge = translation.y + half_extents.y
-        let nearest_bottom_edge = nearest_bottom
+        // Then for top pipe: bottom edge = translation.y - half_extents.y
+        let second_top_bottom_edge = second_top
+            .map(|(t, aabb)| t.translation().y - aabb.half_extents.y)
+            .unwrap_or(500.0);
+
+        let nearest_bottom_top_edge = nearest_bottom
             .map(|(t, aabb)| t.translation().y + aabb.half_extents.y)
             .unwrap_or(-500.0);
+
+        let second_bottom_top_edge = second_bottom
+            .map(|(t, aabb)| t.translation().y + aabb.half_extents.y)
+            .unwrap_or(-500.0);
+
+        let top_right_edge = nearest_top
+            .map(|(t, aabb)| t.translation().x + aabb.half_extents.x)
+            .unwrap_or(f32::NEG_INFINITY); // no entity → treat as already cleared
+
+        let bot_right_edge = nearest_bottom
+            .map(|(t, aabb)| t.translation().x + aabb.half_extents.x)
+            .unwrap_or(f32::NEG_INFINITY); // no entity → treat as already cleared
+
+        let bird_right_edge = bird_x + bird_aabb.half_extents.x;
+
+        let remaining_top_x = if bird_right_edge >= top_right_edge {
+            -0.5 // already past, or not overlapping
+        } else {
+            top_right_edge - bird_right_edge
+        };
+        let remaining_bot_x = if bird_right_edge >= bot_right_edge {
+            -0.5 // already past, or not overlapping
+        } else {
+            bot_right_edge - bird_right_edge
+        };
 
         let state = GameStateFeatures {
             bird_y: transform.translation.y,
             bird_speed: calculated_velocity, //calculated_velocity,
-            next_pipe_top_y: nearest_top_edge,
-            next_pipe_bottom_y: nearest_bottom_edge,
-            dist_x: dist_x,
+            next_pipe_top_y: nearest_top_bottom_edge,
+            next_pipe_bottom_y: nearest_bottom_top_edge,
+            second_top_y: second_top_bottom_edge,
+            second_bot_y: second_bottom_top_edge,
+            remaining_bot_x: remaining_bot_x,
+            remaining_top_x: remaining_top_x,
         };
+        //for debugging purposes only
+        commands.entity(*entity).insert(state);
         //get an agent , sync it with Bird's pov
         let agent = am_ressource.agent_manager.bind_agent(bird.uid, state);
         //forward
@@ -117,7 +156,7 @@ fn think(
     //Gamestate has been processed , process bird's agent  stats
     let birds_dead: Vec<_> = all_birds
         .iter()
-        .filter(|(_, bird, _, _)| bird.dead == true)
+        .filter(|(_, bird, _, _, _)| bird.dead == true)
         .collect();
 
     for bird in &birds_dead {

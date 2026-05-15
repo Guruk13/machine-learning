@@ -80,17 +80,23 @@ pub struct GameStateFeatures {
     pub bird_speed: f32,
     pub next_pipe_top_y: f32,
     pub next_pipe_bottom_y: f32,
-    pub dist_x: f32,
+    pub remaining_bot_x: f32,
+    pub remaining_top_x: f32,
+    pub second_top_y: f32,
+    pub second_bot_y: f32,
 }
 impl GameStateFeatures {
     /// Returns a flat [6] array — handy when building batch tensors manually.
-    pub fn to_array(&self) -> [f32; 5] {
+    pub fn to_array(&self) -> [f32; 8] {
         [
             self.bird_y,
             self.bird_speed,
             self.next_pipe_top_y,
             self.next_pipe_bottom_y,
-            self.dist_x,
+            self.second_bot_y,
+            self.second_top_y,
+            self.remaining_bot_x,
+            self.remaining_top_x,
         ]
     }
 }
