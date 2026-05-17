@@ -237,7 +237,7 @@ fn check_collisions(
     mut commands: Commands,
     mut birds: Query<(Entity, &mut Bird, Has<Player>), With<Bird>>,
     pipe_segments: Query<(&Sprite, Entity), Or<(With<PipeTop>, With<PipeBottom>)>>,
-    pipe_gaps: Query<(&Sprite, Entity), With<PointsGate>>,
+    mut pipe_gaps: Query<(&Sprite, Entity, &mut PointsGate), With<PointsGate>>,
     mut gizmos: Gizmos,
     transform_helper: TransformHelper,
 ) -> Result<()> {
@@ -271,7 +271,7 @@ fn check_collisions(
             }
         }
 
-        for (sprite, entity) in &pipe_gaps {
+        for (sprite, entity, mut pointgate) in pipe_gaps.iter_mut() {
             let gap_transform = transform_helper.compute_global_transform(entity)?;
             let gap_collider = Aabb2d::new(
                 gap_transform.translation().xy(),
@@ -284,9 +284,11 @@ fn check_collisions(
                 RED_400,
             );
 
-            if bird_collider.intersects(&gap_collider) {
+            if bird_collider.intersects(&gap_collider) & !pointgate.has_scored.contains(&bird.1.uid)
+            {
                 //commands.trigger(ScorePoint { bird: bird.0 });
                 bird.1.score = bird.1.score + 1;
+                pointgate.has_scored.push(bird.1.uid)
             }
         }
     }

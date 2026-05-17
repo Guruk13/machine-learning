@@ -166,7 +166,7 @@ fn think(
 
     if !&birds_dead.is_empty() {
         am_ressource.agent_manager.update_stats();
-        am_ressource.agent_manager.prune_agents();
+        //am_ressource.agent_manager.prune_agents();
     }
 
     for bird in &birds_dead {

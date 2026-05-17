@@ -80,6 +80,10 @@ impl Bird {
 #[derive(Resource, Default)]
 pub struct BirdInventory(pub Vec<u32>);
 
+#[derive(Debug, Component, Clone, Copy, PartialEq, Eq)]
+pub enum Flag {
+    Dead, // @todo use this instead of  Bird state
+}
 #[derive(Component)]
 pub struct Pipe;
 
@@ -90,4 +94,6 @@ pub struct PipeTop;
 pub struct PipeBottom;
 
 #[derive(Component)]
-pub struct PointsGate;
+pub struct PointsGate {
+    pub has_scored: Vec<u32>,
+}

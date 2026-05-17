@@ -18,8 +18,8 @@ impl Plugin for PipePlugin {
             FixedUpdate,
             (
                 despawn_pipes,
-                shift_pipes_to_the_left,
-                spawn_pipes.run_if(on_timer(Duration::from_millis(1000))),
+                //shift_pipes_to_the_left,
+                //spawn_pipes.run_if(on_timer(Duration::from_millis(1000))),
             ),
         );
     }
@@ -71,7 +71,9 @@ fn spawn_pipes(mut commands: Commands, asset_server: Res<AssetServer>, time: Res
                     ..default()
                 },
                 Transform::from_xyz(0.0, gap_y_position, 1.0,),
-                PointsGate,
+                PointsGate {
+                    has_scored: Vec::new()
+                },
             ),
             (
                 Sprite {
