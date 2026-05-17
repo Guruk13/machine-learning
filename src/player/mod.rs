@@ -32,7 +32,7 @@ pub enum GameSets {
     AI,      // think, bind agent
 }
 
-#[derive(Component, Debug)]
+#[derive(Component, Debug, Reflect)]
 #[require(Gravity(1000.), Velocity)]
 pub struct Bird {
     pub uid: u32,

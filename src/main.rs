@@ -8,7 +8,7 @@ use bevy::{
     sprite_render::{Material2d, Material2dPlugin},
 };
 use bevy::{color::palettes::tailwind::RED_400, image::ImageLoaderSettings};
-use flappy_bird::*;
+use flappy_bird::{ml::agent_utils::GameStateFeatures, *};
 
 use crate::player::*;
 use bevy_inspector_egui::{bevy_egui::EguiPlugin, quick::WorldInspectorPlugin};
@@ -40,7 +40,8 @@ fn main() -> AppExit {
         .add_systems(
             Update,
             (
-                score_update.run_if(resource_changed::<Score>),
+                //score_update.run_if(resource_changed::<Score>),
+                best_bird,
                 enforce_bird_direction,
             ),
         )
@@ -76,6 +77,8 @@ fn main() -> AppExit {
         // AI
         .add_plugins(EguiPlugin::default())
         .add_plugins(WorldInspectorPlugin::new())
+        .register_type::<GameStateFeatures>()
+        .register_type::<Bird>()
         .add_plugins(BrainPlugin)
         .run()
 }
@@ -282,7 +285,8 @@ fn check_collisions(
             );
 
             if bird_collider.intersects(&gap_collider) {
-                commands.trigger(ScorePoint { bird: bird.0 });
+                //commands.trigger(ScorePoint { bird: bird.0 });
+                bird.1.score = bird.1.score + 1;
             }
         }
     }
@@ -292,6 +296,14 @@ fn check_collisions(
 fn score_update(mut query: Query<&mut Text, With<ScoreText>>, score: Res<Score>) {
     for mut span in &mut query {
         span.0 = score.0.to_string();
+    }
+}
+pub fn best_bird(bird_query: Query<&Bird>, mut query: Query<&mut Text, With<ScoreText>>) {
+    let best_score = bird_query.iter().map(|bird| bird.score).max();
+    for mut span in &mut query {
+        if let Some(highest) = best_score {
+            span.0 = highest.to_string();
+        }
     }
 }
 

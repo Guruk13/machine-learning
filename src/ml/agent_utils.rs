@@ -1,5 +1,5 @@
 use super::pruner::PruningConfig;
-use bevy::prelude::Component;
+use bevy::prelude::{Component, Reflect};
 
 #[derive(Debug, Clone)]
 pub struct EpisodeStep {
@@ -74,7 +74,7 @@ impl AgentStats {
     }
 }
 
-#[derive(Component, Debug, Clone, Copy, Default)]
+#[derive(Reflect, Component, Debug, Clone, Copy, Default)]
 pub struct GameStateFeatures {
     pub bird_y: f32,
     pub bird_speed: f32,
