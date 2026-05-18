@@ -99,13 +99,13 @@ impl Default for PruningConfig {
         Self {
             entropy_floor: 0.05,   // below 5 % of max → collapsed
             entropy_ceiling: 0.95, // above 95 % of max → still random
-            entropy_alpha: 0.01,   // "if you jump one percent of the occasions you have , it's ok"
+            entropy_alpha: 0.05,   // "if you jump one percent of the occasions you have , it's ok"
 
             score_floor: -0.5, // tune to your reward scale
             score_alpha: 0.05,
 
             warmup_episodes: 50,
-            patience: 10,
+            patience: 500,
 
             noise_scale: 0.001,
         }

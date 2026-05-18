@@ -38,6 +38,7 @@ pub struct Bird {
     pub uid: u32,
     pub dead: bool,
     pub score: u32,
+    pub pipe_death: bool,
 }
 
 #[derive(Event)]
@@ -57,6 +58,7 @@ impl Bird {
                 uid: id,
                 dead: false,
                 score: 0,
+                pipe_death: false,
             },
             Sprite {
                 custom_size: Some(Vec2::splat(PLAYER_SIZE)),

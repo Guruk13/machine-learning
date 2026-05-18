@@ -208,7 +208,7 @@ fn respawn_on_endgame(
 }
 
 fn spawn_birds(mut commands: Commands, asset_server: Res<AssetServer>) {
-    for n in 0..10 {
+    for n in 0..15 {
         commands.spawn(Bird::new(&*asset_server, false, n));
     }
 }
@@ -266,6 +266,8 @@ fn check_collisions(
                     //commands.trigger(EndGame);
                 } else {
                     bird.1.dead = true;
+                    bird.1.pipe_death = true;
+
                     commands.trigger(BirdDeath { bird: bird.0 });
                 }
             }
@@ -336,11 +338,12 @@ fn bird_respawn(
     mut birdinv: ResMut<BirdInventory>,
     pipe_segments: Query<(&Sprite, Entity), Or<(With<PipeTop>, With<PipeBottom>)>>,
     transform_helper: TransformHelper,
+    pipe_gaps: Query<(&Sprite, Entity), With<PointsGate>>,
 ) -> Result<()> {
     let translation = Vec2::new(-CANVAS_SIZE.x / 4.0, 0.0);
-    let bird_collider = BoundingCircle::new(translation, PLAYER_SIZE / 2. * 1.5); // spawn is clear of 50% a Bird's size
+    let bird_collider = BoundingCircle::new(translation, PLAYER_SIZE / 2. * 3.0); // spawn is clear of 50% a Bird's size
 
-    let has_intersected = pipe_segments.iter().any(|(sprite, entity)| {
+    let mut has_intersected = pipe_segments.iter().any(|(sprite, entity)| {
         let pipe_transform = transform_helper.compute_global_transform(entity).unwrap();
         let pipe_collider = Aabb2d::new(
             pipe_transform.translation().xy(),
@@ -348,6 +351,18 @@ fn bird_respawn(
         );
         bird_collider.intersects(&pipe_collider)
     });
+
+    for (sprite, entity) in pipe_gaps {
+        let gap_transform = transform_helper.compute_global_transform(entity)?;
+        let gap_collider = Aabb2d::new(
+            gap_transform.translation().xy(),
+            sprite.custom_size.unwrap() / 2.,
+        );
+
+        if bird_collider.intersects(&gap_collider) {
+            has_intersected = true;
+        }
+    }
 
     if !has_intersected {
         for value in birdinv.0.drain(..) {
@@ -358,7 +373,6 @@ fn bird_respawn(
         //warn!("{:?}", birdinv.0.len());
         // drain already clears, no need for .clear()
     }
-
     Ok(())
 }
 

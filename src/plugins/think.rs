@@ -126,10 +126,10 @@ fn think(
         let action = agent.select_action();
 
         //compute reward
-        let mut reward: f32 = if bird.dead {
+        let mut reward: f32 = if bird.dead && bird.pipe_death {
             RewardPrizes::default().dying
         } else {
-            RewardPrizes::default().alive
+            RewardPrizes::default().alive * (1 + bird.score) as f32
         };
 
         if bird.score > agent.state.score {
@@ -138,7 +138,7 @@ fn think(
         }
 
         let gap_centre = (state.next_pipe_top_y + state.next_pipe_bottom_y) / 2.0;
-        let gap_centre_penalty = (state.bird_y - gap_centre).abs() * 0.001;
+        let gap_centre_penalty = (state.bird_y - gap_centre).abs() * 0.1;
         // Small bonus for staying near the centre of the gap
         reward = reward - gap_centre_penalty;
         //
@@ -166,7 +166,7 @@ fn think(
 
     if !&birds_dead.is_empty() {
         am_ressource.agent_manager.update_stats();
-        //am_ressource.agent_manager.prune_agents();
+        am_ressource.agent_manager.prune_agents();
     }
 
     for bird in &birds_dead {

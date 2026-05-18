@@ -18,8 +18,8 @@ impl Plugin for PipePlugin {
             FixedUpdate,
             (
                 despawn_pipes,
-                //shift_pipes_to_the_left,
-                //spawn_pipes.run_if(on_timer(Duration::from_millis(1000))),
+                shift_pipes_to_the_left,
+                spawn_pipes.run_if(on_timer(Duration::from_millis(1000))),
             ),
         );
     }
