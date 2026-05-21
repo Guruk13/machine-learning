@@ -75,23 +75,31 @@ impl<B: AutodiffBackend> AgentManager<B> {
         self
     }
 
-    pub fn update_stats(&mut self) {
-        self.inner.iter_mut().for_each(|(_key, agent)| {
-            agent
-                .stats
-                .update(agent.state.episode.clone(), &PruningConfig::default());
-        });
+    pub fn update_stats(&mut self, keys: &[u32]) {
+        for key in keys {
+            match self.inner.get_mut(key) {
+                Some(agent) => {
+                    agent
+                        .stats
+                        .update(agent.state.episode.clone(), &PruningConfig::default());
+                }
+                None => panic!("Agent '{}' not found", key),
+            }
+        }
     }
-    pub fn purge_states(&mut self, key: u32) {
+    pub fn update_metrics(&mut self, key: u32) {
         match self.inner.get_mut(&key) {
             Some(agent) => {
                 agent.state = AgentState::new();
+                agent.stats.entropy_sum = 0.0;
+                agent.stats.episodes = agent.stats.episodes + 1;
+                agent.stats.score_ema = 0.0;
+                agent.state.episode.clear();
             }
             None => panic!("Agent '{}' not found", key),
         }
     }
 
-    /// Call when bird `i` dies — triggers its flappy update.
     /// Returns the loss for logging / display.
 
     pub fn bird_died(&mut self, key: u32) -> f32 {

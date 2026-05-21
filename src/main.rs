@@ -79,6 +79,7 @@ fn main() -> AppExit {
         .add_plugins(WorldInspectorPlugin::new())
         .register_type::<GameStateFeatures>()
         .register_type::<Bird>()
+        .register_type::<BirdInventory>()
         .add_plugins(BrainPlugin)
         .run()
 }
@@ -208,7 +209,7 @@ fn respawn_on_endgame(
 }
 
 fn spawn_birds(mut commands: Commands, asset_server: Res<AssetServer>) {
-    for n in 0..15 {
+    for n in 0..5 {
         commands.spawn(Bird::new(&*asset_server, false, n));
     }
 }
@@ -227,8 +228,8 @@ fn despawn_deads(
         if bird.dead {
             //warn! {"there'll be another time {:?}", bird.uid}
             commands.entity(entity).despawn();
-
-            birdinv.0.push(bird.uid)
+            //pushed in think there's probably a way to implement a trait here
+            //birdinv.0.push(bird.uid)
         };
     }
 }
@@ -341,7 +342,7 @@ fn bird_respawn(
     pipe_gaps: Query<(&Sprite, Entity), With<PointsGate>>,
 ) -> Result<()> {
     let translation = Vec2::new(-CANVAS_SIZE.x / 4.0, 0.0);
-    let bird_collider = BoundingCircle::new(translation, PLAYER_SIZE / 2. * 3.0); // spawn is clear of 50% a Bird's size
+    let bird_collider = BoundingCircle::new(translation, PLAYER_SIZE / 2. * 2.0); // spawn is clear of 50% a Bird's size
 
     let mut has_intersected = pipe_segments.iter().any(|(sprite, entity)| {
         let pipe_transform = transform_helper.compute_global_transform(entity).unwrap();

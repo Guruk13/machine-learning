@@ -79,7 +79,7 @@ impl Bird {
     }
 }
 
-#[derive(Resource, Default)]
+#[derive(Resource, Default, Reflect)]
 pub struct BirdInventory(pub Vec<u32>);
 
 #[derive(Debug, Component, Clone, Copy, PartialEq, Eq)]

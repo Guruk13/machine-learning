@@ -1,6 +1,6 @@
 use super::pipes::*;
 use crate::ml::agent_utils::Action;
-use crate::player::{Bird, BirdJump, GameSets, Player, Velocity};
+use crate::player::{Bird, BirdInventory, BirdJump, GameSets, Player, Velocity};
 use crate::player::{PipeBottom, PipeTop};
 use bevy::camera::primitives::Aabb;
 use bevy::prelude::*;
@@ -23,6 +23,10 @@ unsafe impl<B: AutodiffBackend> Sync for AMRessource<B> {}
 
 pub struct BrainPlugin;
 
+// to be able to run updates on every agent without cutting some agent's experience , store the birds here , then respawn once optimizations are through
+#[derive(Resource, Default)]
+pub struct DeadBirdRegistry(pub Vec<u32>);
+
 impl Plugin for BrainPlugin {
     fn build(&self, app: &mut App) {
         let device: <MyAutodiffBackend as burn::tensor::backend::Backend>::Device =
@@ -35,8 +39,15 @@ impl Plugin for BrainPlugin {
         app.insert_non_send_resource(ressource);
         app.add_systems(
             FixedUpdate,
-            (ApplyDeferred, think).chain().in_set(GameSets::AI),
-        );
+            (
+                ApplyDeferred,
+                think,
+                run_forwards_and_optims.run_if(no_birds_in_main_system),
+            )
+                .chain()
+                .in_set(GameSets::AI),
+        )
+        .insert_resource(DeadBirdRegistry(vec![]));
     }
 }
 
@@ -48,6 +59,7 @@ fn think(
     pipe_tops: Query<(&GlobalTransform, &Aabb), With<PipeTop>>,
     pipe_bottoms: Query<(&GlobalTransform, &Aabb), With<PipeBottom>>,
     mut am_ressource: NonSendMut<AMRessource<MyAutodiffBackend>>,
+    mut registry: ResMut<DeadBirdRegistry>,
 ) {
     let all_birds: Vec<_> = birds.iter().collect();
 
@@ -71,28 +83,28 @@ fn think(
         // Then for top pipe: bottom edge = translation.y - half_extents.y
         let nearest_top_bottom_edge = nearest_top
             .map(|(t, aabb)| t.translation().y - aabb.half_extents.y)
-            .unwrap_or(500.0);
+            .unwrap_or(135.0);
 
         // Then for top pipe: bottom edge = translation.y - half_extents.y
         let second_top_bottom_edge = second_top
             .map(|(t, aabb)| t.translation().y - aabb.half_extents.y)
-            .unwrap_or(500.0);
+            .unwrap_or(130.0);
 
         let nearest_bottom_top_edge = nearest_bottom
             .map(|(t, aabb)| t.translation().y + aabb.half_extents.y)
-            .unwrap_or(-500.0);
+            .unwrap_or(-130.0);
 
         let second_bottom_top_edge = second_bottom
             .map(|(t, aabb)| t.translation().y + aabb.half_extents.y)
-            .unwrap_or(-500.0);
+            .unwrap_or(-130.0);
 
         let top_right_edge = nearest_top
             .map(|(t, aabb)| t.translation().x + aabb.half_extents.x)
-            .unwrap_or(f32::NEG_INFINITY); // no entity → treat as already cleared
+            .unwrap_or(300.0); // no entity → treat as already cleared
 
         let bot_right_edge = nearest_bottom
             .map(|(t, aabb)| t.translation().x + aabb.half_extents.x)
-            .unwrap_or(f32::NEG_INFINITY); // no entity → treat as already cleared
+            .unwrap_or(300.0); // no entity → treat as already cleared
 
         let bird_right_edge = bird_x + bird_aabb.half_extents.x;
 
@@ -126,7 +138,7 @@ fn think(
         let action = agent.select_action();
 
         //compute reward
-        let mut reward: f32 = if bird.dead && bird.pipe_death {
+        let mut reward: f32 = if bird.dead && !bird.pipe_death {
             RewardPrizes::default().dying
         } else {
             RewardPrizes::default().alive * (1 + bird.score) as f32
@@ -138,7 +150,7 @@ fn think(
         }
 
         let gap_centre = (state.next_pipe_top_y + state.next_pipe_bottom_y) / 2.0;
-        let gap_centre_penalty = (state.bird_y - gap_centre).abs() * 0.1;
+        let gap_centre_penalty = (state.bird_y - gap_centre).abs() * 0.001;
         // Small bonus for staying near the centre of the gap
         reward = reward - gap_centre_penalty;
         //
@@ -164,16 +176,26 @@ fn think(
     }
     // warn!("{:?}", birds_dead.len());
 
-    if !&birds_dead.is_empty() {
-        am_ressource.agent_manager.update_stats();
-        am_ressource.agent_manager.prune_agents();
-    }
-
     for bird in &birds_dead {
-        am_ressource.agent_manager.purge_states(bird.1.uid);
+        registry.0.push(bird.1.uid);
     }
 }
-
+pub fn run_forwards_and_optims(
+    mut registry: ResMut<DeadBirdRegistry>,
+    mut am_ressource: NonSendMut<AMRessource<MyAutodiffBackend>>,
+    mut live_inventory: ResMut<BirdInventory>,
+) {
+    am_ressource.agent_manager.update_stats(&registry.0);
+    am_ressource.agent_manager.prune_agents();
+    for bird in &registry.0 {
+        am_ressource.agent_manager.update_metrics(*bird);
+    }
+    live_inventory.0 = registry.0.clone();
+    registry.0.clear();
+}
+pub fn no_birds_in_main_system(alive: Query<&Bird>, live_inventory: Res<BirdInventory>) -> bool {
+    alive.is_empty() && live_inventory.0.is_empty()
+}
 #[derive(Component, Default, Clone, Copy)]
 pub struct PartialReward(pub f32);
 

@@ -30,7 +30,7 @@ impl<B: Backend> FlappyNet<B> {
             activation: Relu::new(),
             linear1: LinearConfig::new(8, 16).init(device),
             linear2: LinearConfig::new(16, 16).init(device),
-            linear3: LinearConfig::new(16, 2).init(device),
+            linear3: LinearConfig::new(16, 2).init(device), // tiny weights → near-zero logits → ~[0.5, 0.5]
         }
     }
 
@@ -145,14 +145,13 @@ impl<B: AutodiffBackend> FlappyGradientAgent<B> {
             returns[t] = running;
         }
 
-        // ── 3b. Normalise returns (stabilises training) ───────────────────
+        // ── 3b. Normalise returns ─────────────────────────────────────────
         let mean: f32 = returns.iter().sum::<f32>() / n as f32;
         let var: f32 = returns.iter().map(|r| (r - mean).powi(2)).sum::<f32>() / n as f32;
-
         let std = var.sqrt() + 1e-8;
         let returns: Vec<f32> = returns.iter().map(|r| (r - mean) / std).collect();
 
-        // ── 3c. Build state batch tensor  [n, 6] ─────────────────────────
+        // ── 3c. Build state batch tensor [n, 8] ──────────────────────────
         let flat: Vec<f32> = self
             .state
             .episode
@@ -161,54 +160,49 @@ impl<B: AutodiffBackend> FlappyGradientAgent<B> {
             .collect();
         let states = Tensor::<B, 1>::from_floats(flat.as_slice(), &self.device).reshape([n, 8]);
 
-        // ── 3d. Build action indices [n] ─────────────────────────────────
+        // ── 3d. Build action indices ──────────────────────────────────────
         let action_idx: Vec<i64> = self.state.episode.iter().map(|s| s.action as i64).collect();
 
-        // ── 3e. Forward pass → log-probs of taken actions ─────────────────
-        let probs = self.flappy.forward(states); // [n, 2]
-        // log(probs) — add small ε for numerical stability
-        let log_probs = (probs + 1e-8f32).log();
-        // Gather log_prob for the action that was actually taken.
-        // burn doesn't have a gather shorthand on 2-D so we build a mask.
+        // ── 3e. Forward pass → stable log-probs via log_softmax ──────────
+        let logits = self.flappy.forward(states); // [n, 2]
+        let log_probs = burn::tensor::activation::log_softmax(logits.clone(), 1); // [n, 2]
+        let probs = log_probs.clone().exp(); // [n, 2]
+
+        // ── 3f. Gather log_prob for the action actually taken ─────────────
         let action_mask: Vec<f32> = (0..n)
             .flat_map(|i| {
-                let a = action_idx[i] as usize;
-                // one-hot row: [1, 0] or [0, 1]
                 let mut row = [0.0f32; 2];
-                row[a] = 1.0;
+                row[action_idx[i] as usize] = 1.0;
                 row
             })
             .collect();
-
         let mask =
             Tensor::<B, 1>::from_floats(action_mask.as_slice(), &self.device).reshape([n, 2]);
+        let selected_log_probs = (log_probs.clone() * mask).sum_dim(1); // [n, 1]
 
-        // Sum over action dim → selected log-probs  [n]
-        let selected_log_probs = (log_probs * mask).sum_dim(1); // [n, 1]
-
-        // ── 3f. Returns tensor [n, 1] ─────────────────────────────────────
+        // ── 3g. Returns tensor [n, 1] ─────────────────────────────────────
         let returns_t =
             Tensor::<B, 1>::from_floats(returns.as_slice(), &self.device).reshape([n, 1]);
 
-        // ── 3g. REINFORCE loss  = -mean( log π(a|s) * G_t ) ──────────────
-        let loss = (selected_log_probs * returns_t).mean().neg();
+        // ── 3h. Entropy bonus — keeps the policy from collapsing ──────────
+        let entropy = (probs * log_probs).sum_dim(1).mean().neg(); // scalar tensor
 
-        // ── 3h. Back-prop + optimiser step ───────────────────────────────
+        // ── 3i. Final loss = REINFORCE - entropy bonus ────────────────────
+        let reinforce_loss = (selected_log_probs * returns_t).mean().neg();
+        let loss = reinforce_loss - entropy.mul_scalar(0.05f32);
+
+        // ── 3j. Back-prop + optimiser step ───────────────────────────────
         let loss_scalar: f32 = loss.clone().into_scalar().elem::<f32>();
         let grads = loss.backward();
         let grads = GradientsParams::from_grads(grads, &self.flappy);
-        /*         if self.grad_debounce.should_run() {
-            debug_grads(&self.flappy, &grads);
-        } */
-
         self.flappy = self.optimizer.step(
             AgentDefault::default().learning_rate,
             self.flappy.clone(),
             grads,
         );
 
-        // ── 3i. Reset episode buffer ──────────────────────────────────────
-        self.stats.episodes += 1;
+        // ── 3k. Bookkeeping ───────────────────────────────────────────────
+
         loss_scalar
     }
 

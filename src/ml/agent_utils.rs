@@ -52,6 +52,7 @@ impl AgentStats {
     pub fn update(&mut self, episode: Vec<EpisodeStep>, cfg: &PruningConfig) {
         //warn!("{:?}", self.episodes);
         let episode_return: f32 = episode.iter().fold(0.0, |acc, x| acc + x.reward);
+
         // Score EMA
         self.score_ema =
             cfg.score_alpha * episode_return + (1.0 - cfg.score_alpha) * self.score_ema;
@@ -116,8 +117,8 @@ impl Default for RewardPrizes {
     fn default() -> Self {
         Self {
             dying: -1.0,
-            pipe_cleared: 10.0,
-            alive: 0.1,
+            pipe_cleared: 10.,
+            alive: 1.0,
         }
     }
 }
@@ -166,7 +167,7 @@ pub struct AgentDefault {
 impl Default for AgentDefault {
     fn default() -> Self {
         Self {
-            gamma: 0.95,
+            gamma: 0.99,
             learning_rate: 1e-4,
         }
     }

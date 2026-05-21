@@ -99,13 +99,13 @@ impl Default for PruningConfig {
         Self {
             entropy_floor: 0.05,   // below 5 % of max → collapsed
             entropy_ceiling: 0.95, // above 95 % of max → still random
-            entropy_alpha: 0.05,   // "if you jump one percent of the occasions you have , it's ok"
+            entropy_alpha: 0.1,    // "if you jump one percent of the occasions you have , it's ok"
 
-            score_floor: -0.5, // tune to your reward scale
-            score_alpha: 0.05,
+            score_floor: -0.2, // tune to your reward scale
+            score_alpha: 0.1,
 
-            warmup_episodes: 50,
-            patience: 500,
+            warmup_episodes: 20,
+            patience: 20,
 
             noise_scale: 0.001,
         }
@@ -185,6 +185,14 @@ impl PopulationManager {
         agents
             .iter()
             .for_each(|(key, agent): (&u32, &FlappyGradientAgent<B>)| {
+                bevy::prelude::info!(
+                   "Agent {key} | ep={} | entropy_ema={:.3} | score_ema={:.3} | e_streak={} | s_streak={}",
+                   agent.stats.episodes,
+                   agent.stats.entropy_ema,
+                   agent.stats.score_ema,
+                   agent.stats.entropy_violation_streak,
+                   agent.stats.score_violation_streak,
+               );
                 if self.should_prune(agent.stats) {
                     to_prune.push(*key);
                 }
