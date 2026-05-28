@@ -1,3 +1,5 @@
+use crate::ml::model::OPTIMIZER_EPSILON;
+
 use super::pruner::PruningConfig;
 use bevy::prelude::{Component, Reflect};
 
@@ -30,6 +32,8 @@ pub struct AgentStats {
     pub episodes: u64,
 
     pub entropy_sum: f32,
+
+    pub total_score: f32,
 }
 
 //Exponential Moving Average (EMA)
@@ -42,6 +46,7 @@ impl AgentStats {
             score_violation_streak: 0,
             episodes: 0,
             entropy_sum: 0.0,
+            total_score: 0.,
         }
     }
 
@@ -52,7 +57,7 @@ impl AgentStats {
     pub fn update(&mut self, episode: Vec<EpisodeStep>, cfg: &PruningConfig) {
         //warn!("{:?}", self.episodes);
         let episode_return: f32 = episode.iter().fold(0.0, |acc, x| acc + x.reward);
-
+        self.total_score = episode_return;
         // Score EMA
         self.score_ema =
             cfg.score_alpha * episode_return + (1.0 - cfg.score_alpha) * self.score_ema;
@@ -112,13 +117,16 @@ pub struct RewardPrizes {
     pub dying: f32,
     pub pipe_cleared: f32,
     pub alive: f32,
+
+    pub jump_cost: f32,
 }
 impl Default for RewardPrizes {
     fn default() -> Self {
         Self {
-            dying: -1.0,
-            pipe_cleared: 10.,
-            alive: 1.0,
+            dying: -0.5,
+            pipe_cleared: 0.5,
+            alive: 0.01,
+            jump_cost: 0.1,
         }
     }
 }
@@ -167,8 +175,8 @@ pub struct AgentDefault {
 impl Default for AgentDefault {
     fn default() -> Self {
         Self {
-            gamma: 0.99,
-            learning_rate: 1e-4,
+            gamma: 0.25,
+            learning_rate: 5e-5,
         }
     }
 }

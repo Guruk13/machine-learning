@@ -97,17 +97,18 @@ pub struct PruningConfig {
 impl Default for PruningConfig {
     fn default() -> Self {
         Self {
-            entropy_floor: 0.05,   // below 5 % of max → collapsed
-            entropy_ceiling: 0.95, // above 95 % of max → still random
-            entropy_alpha: 0.1,    // "if you jump one percent of the occasions you have , it's ok"
+            //models must be very surprising in their decisions ( flappy bird is a surprise based game )
+            entropy_floor: 0.2,
+            entropy_ceiling: 0.8,
+            //degrade the entropy bounds very slowly
+            entropy_alpha: 0.05, //
+            score_floor: 1.,     // tune to your reward scale
+            score_alpha: 0.001,  // you have to improve at least by a percent each episode
 
-            score_floor: -0.2, // tune to your reward scale
-            score_alpha: 0.1,
-
-            warmup_episodes: 20,
+            warmup_episodes: 50,
             patience: 20,
 
-            noise_scale: 0.001,
+            noise_scale: 0.01,
         }
     }
 }
@@ -213,10 +214,11 @@ impl PopulationManager {
             let reason = self.prune_reason(agents[&idx].stats);
             bevy::prelude::warn!(
                 "Agent {idx} pruned after {} episodes — {reason} \
-                 (entropy_ema={:.3}, score_ema={:.3})",
+                 (entropy_ema={:.3}, score_ema={:.3}, total_score={})",
                 agents[&idx].stats.episodes,
                 agents[&idx].stats.entropy_ema,
                 agents[&idx].stats.score_ema,
+                agents[&idx].stats.total_score
             );
 
             // Reset statistics for the new agent.

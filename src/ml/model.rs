@@ -1,7 +1,8 @@
+use burn::nn::DropoutConfig;
 use burn::tensor::ElementConversion;
 use burn::{
     module::{Module, ModuleMapper, ParamId},
-    nn::{Linear, LinearConfig, Relu},
+    nn::{Dropout, Linear, LinearConfig, Relu},
     optim::{Adam, AdamConfig, GradientsParams, Optimizer, adaptor::OptimizerAdaptor},
     prelude::Backend,
     tensor::{Distribution, Tensor, activation::softmax, backend::AutodiffBackend},
@@ -22,15 +23,18 @@ pub struct FlappyNet<B: Backend> {
     linear2: Linear<B>, // 16 → 16
     linear3: Linear<B>, // 16 → 2
     activation: Relu,
+
+    dropout: Dropout,
 }
 
 impl<B: Backend> FlappyNet<B> {
     pub fn new(device: &B::Device) -> Self {
         Self {
             activation: Relu::new(),
-            linear1: LinearConfig::new(8, 16).init(device),
-            linear2: LinearConfig::new(16, 16).init(device),
-            linear3: LinearConfig::new(16, 2).init(device), // tiny weights → near-zero logits → ~[0.5, 0.5]
+            dropout: DropoutConfig::new(0.2).init(),
+            linear1: LinearConfig::new(8, 32).init(device),
+            linear2: LinearConfig::new(32, 32).init(device),
+            linear3: LinearConfig::new(32, 2).init(device), // tiny weights → near-zero logits → ~[0.5, 0.5]
         }
     }
 
@@ -38,10 +42,13 @@ impl<B: Backend> FlappyNet<B> {
     /// Input shape  : [batch, 6]
     /// Output shape : [batch, 2]  — softmax probabilities
     pub fn forward(&self, x: Tensor<B, 2>) -> Tensor<B, 2> {
+        let training = true;
         let x = self.linear1.forward(x);
         let x = self.activation.forward(x);
+        let x = if training { self.dropout.forward(x) } else { x };
         let x = self.linear2.forward(x);
         let x = self.activation.forward(x);
+        let x = if training { self.dropout.forward(x) } else { x };
         let logits = self.linear3.forward(x);
         softmax(logits, 1) // → action probabilities
     }
@@ -131,15 +138,13 @@ impl<B: AutodiffBackend> FlappyGradientAgent<B> {
     /// Call when the bird dies (episode ends).
     /// Runs a full REINFORCE update and clears the episode buffer.
     /// Returns the mean flappy loss for logging.
-    pub fn finish_episode(&mut self) -> f32 {
-        if self.state.episode.is_empty() {
-            return 0.0;
-        }
-
+    pub fn finish_episode(&mut self, levels: usize) -> f32 {
         // ── 3a. Compute discounted returns G_t ────────────────────────────
         let n = self.state.episode.len();
         let mut returns = vec![0.0f32; n];
         let mut running = 0.0f32;
+
+        //promote long livespan by rewarding 0.0 to agents that died early
         for t in (0..n).rev() {
             running = self.state.episode[t].reward + AgentDefault::default().gamma * running;
             returns[t] = running;

@@ -1,7 +1,7 @@
 use super::agent_utils::GameStateFeatures;
 use super::model::FlappyGradientAgent;
 //use bevy::ecs::error::warn;
-//use bevy::prelude::warn;
+use bevy::prelude::warn;
 use burn::tensor::backend::AutodiffBackend;
 use std::collections::HashMap;
 
@@ -79,9 +79,11 @@ impl<B: AutodiffBackend> AgentManager<B> {
         for key in keys {
             match self.inner.get_mut(key) {
                 Some(agent) => {
-                    agent
+                    let episode_sum = agent
                         .stats
                         .update(agent.state.episode.clone(), &PruningConfig::default());
+
+                    warn!({"agent total score: {:?}", episode_sum })
                 }
                 None => panic!("Agent '{}' not found", key),
             }
@@ -100,15 +102,25 @@ impl<B: AutodiffBackend> AgentManager<B> {
         }
     }
 
-    /// Returns the loss for logging / display.
+    ///  may Returns the loss for logging / display.
 
-    pub fn bird_died(&mut self, key: u32) -> f32 {
-        match self.inner.get_mut(&key) {
-            Some(agent) => {
-                // spot entropicishes
-                return agent.finish_episode();
-            }
-            None => panic!("Agent '{}' not found", key),
+    pub fn agents_over(&mut self) {
+        let levels = self
+            .inner
+            .values()
+            .map(|agent| agent.state.episode.len())
+            .max()
+            .unwrap_or(0);
+
+        for (_, agent) in self.inner.iter_mut() {
+            agent.finish_episode(levels);
         }
     }
+    //  match self.inner.get_mut(&key) {
+    //      Some(agent) => {
+    //          // spot entropicishes
+    //          return agent.finish_episode();
+    //      }
+    //      None => panic!("Agent '{}' not found", key),
+    //  }
 }

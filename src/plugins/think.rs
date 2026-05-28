@@ -3,10 +3,12 @@ use crate::ml::agent_utils::Action;
 use crate::player::{Bird, BirdInventory, BirdJump, GameSets, Player, Velocity};
 use crate::player::{PipeBottom, PipeTop};
 use bevy::camera::primitives::Aabb;
+use bevy::pbr::ParallaxMappingMethod::Occlusion;
 use bevy::prelude::*;
 use burn::backend::Autodiff;
 use burn::backend::wgpu::Wgpu;
 use burn::tensor::backend::AutodiffBackend;
+use burn::tensor::ops::InterpolateMode::Nearest;
 
 use crate::ml::multiagent::AgentManager;
 
@@ -81,43 +83,44 @@ fn think(
         let second_bottom = pipes_below.next();
 
         // Then for top pipe: bottom edge = translation.y - half_extents.y
-        let nearest_top_bottom_edge = nearest_top
-            .map(|(t, aabb)| t.translation().y - aabb.half_extents.y)
-            .unwrap_or(135.0);
-
-        // Then for top pipe: bottom edge = translation.y - half_extents.y
-        let second_top_bottom_edge = second_top
-            .map(|(t, aabb)| t.translation().y - aabb.half_extents.y)
-            .unwrap_or(130.0);
-
-        let nearest_bottom_top_edge = nearest_bottom
-            .map(|(t, aabb)| t.translation().y + aabb.half_extents.y)
-            .unwrap_or(-130.0);
-
-        let second_bottom_top_edge = second_bottom
-            .map(|(t, aabb)| t.translation().y + aabb.half_extents.y)
-            .unwrap_or(-130.0);
-
-        let top_right_edge = nearest_top
-            .map(|(t, aabb)| t.translation().x + aabb.half_extents.x)
-            .unwrap_or(300.0); // no entity → treat as already cleared
-
-        let bot_right_edge = nearest_bottom
-            .map(|(t, aabb)| t.translation().x + aabb.half_extents.x)
-            .unwrap_or(300.0); // no entity → treat as already cleared
-
-        let bird_right_edge = bird_x + bird_aabb.half_extents.x;
-
-        let remaining_top_x = if bird_right_edge >= top_right_edge {
-            -0.5 // already past, or not overlapping
+        let nearest_top_bottom_edge;
+        let nearest_bottom_top_edge;
+        let second_top_bottom_edge;
+        let second_bottom_top_edge;
+        let remaining_top_x;
+        let remaining_bot_x;
+        let bird_left_edge = bird_x + bird_aabb.half_extents.x;
+        if let Some((transform, aabb)) = nearest_top {
+            nearest_top_bottom_edge = transform.translation().y - aabb.half_extents.y;
+            let top_right_edge;
+            top_right_edge = transform.translation().x + aabb.half_extents.x;
+            remaining_top_x = top_right_edge - bird_left_edge;
         } else {
-            top_right_edge - bird_right_edge
-        };
-        let remaining_bot_x = if bird_right_edge >= bot_right_edge {
-            -0.5 // already past, or not overlapping
+            nearest_top_bottom_edge = CANVAS_SIZE[1] / 2. + 1.;
+            remaining_top_x = -1.;
+        }
+        if let Some((transform, aabb)) = nearest_bottom {
+            nearest_bottom_top_edge = transform.translation().y + aabb.half_extents.y;
+            let bot_right_edge;
+            bot_right_edge = transform.translation().x + aabb.half_extents.x;
+            remaining_bot_x = bot_right_edge - bird_left_edge
         } else {
-            bot_right_edge - bird_right_edge
-        };
+            nearest_bottom_top_edge = -CANVAS_SIZE[1] / 2. - 1.;
+
+            remaining_bot_x = -1.;
+        }
+
+        if let Some((transform, aabb)) = second_bottom {
+            second_top_bottom_edge = transform.translation().y - aabb.half_extents.y;
+        } else {
+            second_top_bottom_edge = CANVAS_SIZE[1] / 2. + 1.;
+        }
+
+        if let Some((transform, aabb)) = second_top {
+            second_bottom_top_edge = transform.translation().y + aabb.half_extents.y;
+        } else {
+            second_bottom_top_edge = -CANVAS_SIZE[1] / 2. - 1.;
+        }
 
         let state = GameStateFeatures {
             bird_y: transform.translation.y,
@@ -139,20 +142,35 @@ fn think(
 
         //compute reward
         let mut reward: f32 = if bird.dead && !bird.pipe_death {
+            //dying soon is shameful
             RewardPrizes::default().dying
         } else {
-            RewardPrizes::default().alive * (1 + bird.score) as f32
+            RewardPrizes::default().alive * (agent.state.score as f32).powi(2).max(1.0)
         };
+        //prevent association of jump = reward policy
+        if action == Action::Jump {
+            reward += RewardPrizes::default().jump_cost
+        }
 
+        /*         let mut reward: f32 = if bird.dead && !bird.pipe_death {
+            //dying soon is shameful
+            RewardPrizes::default().dying * -(agent.state.score as i32) as f32
+        } else {
+            RewardPrizes::default().alive * (1 + bird.score) as f32
+        }; */
         if bird.score > agent.state.score {
-            reward += RewardPrizes::default().pipe_cleared;
+            reward +=
+                RewardPrizes::default().pipe_cleared * (agent.state.score as f32).powi(5).max(1.0);
             agent.state.score = bird.score;
         }
 
         let gap_centre = (state.next_pipe_top_y + state.next_pipe_bottom_y) / 2.0;
-        let gap_centre_penalty = (state.bird_y - gap_centre).abs() * 0.001;
-        // Small bonus for staying near the centre of the gap
-        reward = reward - gap_centre_penalty;
+        let gap_half = (state.next_pipe_top_y - state.next_pipe_bottom_y).abs() / 2.0;
+
+        let dist_to_centre = (state.bird_y - gap_centre).abs();
+        let centre_bonus = 1.0 - (dist_to_centre / gap_half).clamp(0.0, 1.0); // 1.0 at centre, 0.0 at edge
+
+        reward += centre_bonus;
         //
         agent.record_step(action.clone(), reward);
         match action {
@@ -171,9 +189,6 @@ fn think(
         .filter(|(_, bird, _, _, _)| bird.dead == true)
         .collect();
 
-    for bird in &birds_dead {
-        am_ressource.agent_manager.bird_died(bird.1.uid);
-    }
     // warn!("{:?}", birds_dead.len());
 
     for bird in &birds_dead {
@@ -185,6 +200,10 @@ pub fn run_forwards_and_optims(
     mut am_ressource: NonSendMut<AMRessource<MyAutodiffBackend>>,
     mut live_inventory: ResMut<BirdInventory>,
 ) {
+    //run the forward function
+    am_ressource.agent_manager.agents_over();
+
+    //grade general behavior
     am_ressource.agent_manager.update_stats(&registry.0);
     am_ressource.agent_manager.prune_agents();
     for bird in &registry.0 {
