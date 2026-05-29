@@ -144,17 +144,27 @@ impl<B: AutodiffBackend> FlappyGradientAgent<B> {
         let mut returns = vec![0.0f32; n];
         let mut running = 0.0f32;
 
-        //promote long livespan by rewarding 0.0 to agents that died early
         for t in (0..n).rev() {
             running = self.state.episode[t].reward + AgentDefault::default().gamma * running;
             returns[t] = running;
         }
 
         // ── 3b. Normalise returns ─────────────────────────────────────────
-        let mean: f32 = returns.iter().sum::<f32>() / n as f32;
-        let var: f32 = returns.iter().map(|r| (r - mean).powi(2)).sum::<f32>() / n as f32;
+        let var: f32 = returns
+            .iter()
+            .map(|r| (r - self.stats.score_ema).powi(2))
+            .sum::<f32>()
+            / n as f32;
+
+        // how spread out this episode's returns are — plus epsilon so we never divide by zero
         let std = var.sqrt() + 1e-8;
-        let returns: Vec<f32> = returns.iter().map(|r| (r - mean) / std).collect();
+
+        // shift each return by the historical baseline, scale by spread
+        // — below-average episodes produce negative advantages, above-average produce positive
+        let returns: Vec<f32> = returns
+            .iter()
+            .map(|r| (r - self.stats.score_ema) / std)
+            .collect();
 
         // ── 3c. Build state batch tensor [n, 8] ──────────────────────────
         let flat: Vec<f32> = self

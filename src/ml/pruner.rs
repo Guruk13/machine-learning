@@ -98,14 +98,14 @@ impl Default for PruningConfig {
     fn default() -> Self {
         Self {
             //models must be very surprising in their decisions ( flappy bird is a surprise based game )
-            entropy_floor: 0.2,
-            entropy_ceiling: 0.8,
-            //degrade the entropy bounds very slowly
-            entropy_alpha: 0.05, //
+            entropy_floor: 0.1,
+            entropy_ceiling: 0.9,
+            //degrade the entropc bounds very slowly
+            entropy_alpha: 0.01, //
             score_floor: 1.,     // tune to your reward scale
-            score_alpha: 0.001,  // you have to improve at least by a percent each episode
+            score_alpha: 0.1,    // you have to improve at least by a percent each episode
 
-            warmup_episodes: 50,
+            warmup_episodes: 150,
             patience: 20,
 
             noise_scale: 0.01,
@@ -187,10 +187,12 @@ impl PopulationManager {
             .iter()
             .for_each(|(key, agent): (&u32, &FlappyGradientAgent<B>)| {
                 bevy::prelude::info!(
-                   "Agent {key} | ep={} | entropy_ema={:.3} | score_ema={:.3} | e_streak={} | s_streak={}",
+                   "Agent {key} | ep={} | entropy_ema={:.3} | score_ema={:.3} | total_score={:.3}  | e_streak={} | s_streak={}",
                    agent.stats.episodes,
                    agent.stats.entropy_ema,
                    agent.stats.score_ema,
+                   agent.stats.total_score,
+
                    agent.stats.entropy_violation_streak,
                    agent.stats.score_violation_streak,
                );

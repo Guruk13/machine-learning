@@ -59,8 +59,13 @@ impl AgentStats {
         let episode_return: f32 = episode.iter().fold(0.0, |acc, x| acc + x.reward);
         self.total_score = episode_return;
         // Score EMA
-        self.score_ema =
-            cfg.score_alpha * episode_return + (1.0 - cfg.score_alpha) * self.score_ema;
+        //EMA initialization bias correction
+        if self.episodes == 1 {
+            self.score_ema = episode_return;
+        } else {
+            self.score_ema =
+                cfg.score_alpha * episode_return + (1.0 - cfg.score_alpha) * self.score_ema;
+        }
 
         // Violation streaks
         let entropy_ok =
@@ -123,8 +128,8 @@ pub struct RewardPrizes {
 impl Default for RewardPrizes {
     fn default() -> Self {
         Self {
-            dying: -0.5,
-            pipe_cleared: 0.5,
+            dying: -50.0,
+            pipe_cleared: 10.,
             alive: 0.01,
             jump_cost: 0.1,
         }
@@ -175,8 +180,8 @@ pub struct AgentDefault {
 impl Default for AgentDefault {
     fn default() -> Self {
         Self {
-            gamma: 0.25,
-            learning_rate: 5e-5,
+            gamma: 0.95,
+            learning_rate: 1e-4,
         }
     }
 }

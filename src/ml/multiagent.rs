@@ -82,8 +82,6 @@ impl<B: AutodiffBackend> AgentManager<B> {
                     let episode_sum = agent
                         .stats
                         .update(agent.state.episode.clone(), &PruningConfig::default());
-
-                    warn!({"agent total score: {:?}", episode_sum })
                 }
                 None => panic!("Agent '{}' not found", key),
             }
