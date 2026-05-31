@@ -128,8 +128,8 @@ impl Default for RewardPrizes {
         Self {
             dying: -5.0,
             pipe_cleared: 5.,
-            alive: 0.01,
-            jump_cost: 0.1,
+            alive: 0.1,
+            jump_cost: 0.01,
         }
     }
 }
