@@ -3,12 +3,10 @@ use crate::ml::agent_utils::Action;
 use crate::player::{Bird, BirdInventory, BirdJump, GameSets, Player, Velocity};
 use crate::player::{PipeBottom, PipeTop};
 use bevy::camera::primitives::Aabb;
-use bevy::pbr::ParallaxMappingMethod::Occlusion;
 use bevy::prelude::*;
 use burn::backend::Autodiff;
 use burn::backend::wgpu::Wgpu;
 use burn::tensor::backend::AutodiffBackend;
-use burn::tensor::ops::InterpolateMode::Nearest;
 
 use crate::ml::multiagent::AgentManager;
 
@@ -68,70 +66,73 @@ fn think(
     //warn!( "Look mom , no .... : {:?}",query.iter().count);
     for (entity, bird, transform, velocity, bird_aabb) in &all_birds {
         let calculated_velocity = Vec2::new(PIPE_SPEED, velocity.0).to_angle();
-        //let bird_y = transform.translation.y;
         let bird_x = transform.translation.x;
-        let mut pipes_above = pipe_tops.iter().filter(|t| {
-            t.0.translation().x + t.1.half_extents.x > bird_x - bird_aabb.half_extents.x
-        });
-        let nearest_top = pipes_above.next();
-        let second_top = pipes_above.next();
-
-        let mut pipes_below = pipe_bottoms.iter().filter(|t| {
-            t.0.translation().x + t.1.half_extents.x > bird_x - bird_aabb.half_extents.x
-        });
-        let nearest_bottom = pipes_below.next();
-        let second_bottom = pipes_below.next();
-
-        // Then for top pipe: bottom edge = translation.y - half_extents.y
-        let nearest_top_bottom_edge;
-        let nearest_bottom_top_edge;
-        let second_top_bottom_edge;
-        let second_bottom_top_edge;
-        let remaining_top_x;
-        let remaining_bot_x;
         let bird_left_edge = bird_x + bird_aabb.half_extents.x;
-        if let Some((transform, aabb)) = nearest_top {
-            nearest_top_bottom_edge = transform.translation().y - aabb.half_extents.y;
-            let top_right_edge;
-            top_right_edge = transform.translation().x + aabb.half_extents.x;
-            remaining_top_x = top_right_edge - bird_left_edge;
-        } else {
-            nearest_top_bottom_edge = CANVAS_SIZE[1] / 2. + 1.;
-            remaining_top_x = -1.;
-        }
-        if let Some((transform, aabb)) = nearest_bottom {
-            nearest_bottom_top_edge = transform.translation().y + aabb.half_extents.y;
-            let bot_right_edge;
-            bot_right_edge = transform.translation().x + aabb.half_extents.x;
-            remaining_bot_x = bot_right_edge - bird_left_edge
-        } else {
-            nearest_bottom_top_edge = -CANVAS_SIZE[1] / 2. - 1.;
+        let bird_right_edge = bird_x - bird_aabb.half_extents.x; // left edge for filter
 
-            remaining_bot_x = -1.;
-        }
+        // Sort all pipes ahead, independently (they are NOT assumed to be pairs)
+        let mut tops_ahead: Vec<_> = pipe_tops
+            .iter()
+            .filter(|(t, aabb)| t.translation().x + aabb.half_extents.x > bird_right_edge)
+            .collect();
+        tops_ahead.sort_by(|a, b| {
+            a.0.translation()
+                .x
+                .partial_cmp(&b.0.translation().x)
+                .unwrap()
+        });
 
-        if let Some((transform, aabb)) = second_bottom {
-            second_top_bottom_edge = transform.translation().y - aabb.half_extents.y;
-        } else {
-            second_top_bottom_edge = CANVAS_SIZE[1] / 2. + 1.;
-        }
+        let mut bots_ahead: Vec<_> = pipe_bottoms
+            .iter()
+            .filter(|(t, aabb)| t.translation().x + aabb.half_extents.x > bird_right_edge)
+            .collect();
+        bots_ahead.sort_by(|a, b| {
+            a.0.translation()
+                .x
+                .partial_cmp(&b.0.translation().x)
+                .unwrap()
+        });
 
-        if let Some((transform, aabb)) = second_top {
-            second_bottom_top_edge = transform.translation().y + aabb.half_extents.y;
-        } else {
-            second_bottom_top_edge = -CANVAS_SIZE[1] / 2. - 1.;
-        }
+        // Pipe 0 well past check — independent per top/bottom
+        let top0_well_past = tops_ahead
+            .first()
+            .map(|(t, aabb)| {
+                bird_left_edge - (t.translation().x + aabb.half_extents.x) > PLAYER_SIZE
+            })
+            .unwrap_or(true);
+
+        let bot0_well_past = bots_ahead
+            .first()
+            .map(|(t, aabb)| {
+                bird_left_edge - (t.translation().x + aabb.half_extents.x) > PLAYER_SIZE
+            })
+            .unwrap_or(true);
+
+        let top_active = if top0_well_past { 1 } else { 0 };
+        let bot_active = if bot0_well_past { 1 } else { 0 };
+
+        // Active pipes
+        let nearest_top = extract_top_pipe(tops_ahead.get(top_active).map(|x| x), bird_left_edge);
+        let nearest_bot =
+            extract_bottom_pipe(bots_ahead.get(bot_active).map(|x| x), bird_left_edge);
+
+        // Lookahead pipes (next after active)
+        let second_top =
+            extract_top_pipe(tops_ahead.get(top_active + 1).map(|x| x), bird_left_edge);
+        let second_bot =
+            extract_bottom_pipe(bots_ahead.get(bot_active + 1).map(|x| x), bird_left_edge);
 
         let state = GameStateFeatures {
             bird_y: transform.translation.y,
-            bird_speed: calculated_velocity, //calculated_velocity,
-            next_pipe_top_y: nearest_top_bottom_edge,
-            next_pipe_bottom_y: nearest_bottom_top_edge,
-            second_top_y: second_top_bottom_edge,
-            second_bot_y: second_bottom_top_edge,
-            remaining_bot_x: remaining_bot_x,
-            remaining_top_x: remaining_top_x,
+            bird_speed: calculated_velocity,
+            next_pipe_top_y: nearest_top.edge_y,
+            next_pipe_bottom_y: nearest_bot.edge_y,
+            second_top_y: second_top.edge_y,
+            second_bot_y: second_bot.edge_y,
+            remaining_top_x: nearest_top.remaining_x,
+            remaining_bot_x: nearest_bot.remaining_x,
         };
+
         //for debugging purposes only
         commands.entity(*entity).insert(state);
         //get an agent , sync it with Bird's pov
@@ -207,6 +208,7 @@ pub fn run_forwards_and_optims(
     am_ressource.agent_manager.update_stats(&registry.0);
     am_ressource.agent_manager.prune_agents();
     for bird in &registry.0 {
+        //in case a bird died , rebuild the over time
         am_ressource.agent_manager.update_metrics(*bird);
     }
     live_inventory.0 = registry.0.clone();
@@ -222,5 +224,38 @@ impl std::ops::Sub<f32> for PartialReward {
     type Output = f32;
     fn sub(self, rhs: f32) -> f32 {
         self.0 - rhs
+    }
+}
+struct PipeEdgeInfo {
+    edge_y: f32,
+    remaining_x: f32,
+}
+
+fn extract_top_pipe(top: Option<&(&GlobalTransform, &Aabb)>, bird_left_edge: f32) -> PipeEdgeInfo {
+    match top {
+        Some((t, aabb)) => PipeEdgeInfo {
+            edge_y: t.translation().y - aabb.half_extents.y,
+            remaining_x: (t.translation().x + aabb.half_extents.x) - bird_left_edge,
+        },
+        None => PipeEdgeInfo {
+            edge_y: CANVAS_SIZE[1] / 2.0 + 1.0,
+            remaining_x: -PLAYER_SIZE / 2.0 - 30.0,
+        },
+    }
+}
+
+fn extract_bottom_pipe(
+    bottom: Option<&(&GlobalTransform, &Aabb)>,
+    bird_left_edge: f32,
+) -> PipeEdgeInfo {
+    match bottom {
+        Some((t, aabb)) => PipeEdgeInfo {
+            edge_y: t.translation().y + aabb.half_extents.y,
+            remaining_x: (t.translation().x + aabb.half_extents.x) - bird_left_edge,
+        },
+        None => PipeEdgeInfo {
+            edge_y: -CANVAS_SIZE[1] / 2.0 - 1.0,
+            remaining_x: -PLAYER_SIZE / 2.0 - 30.0,
+        },
     }
 }

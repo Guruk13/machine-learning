@@ -8,22 +8,20 @@ use burn::{
     tensor::{Distribution, Tensor, activation::softmax, backend::AutodiffBackend},
 };
 
+use super::OPTIMIZER_EPSILON;
 use super::agent_utils::{Action, AgentDefault, AgentState, AgentStats, EpisodeStep};
+use super::critic::Critic;
 use super::pruner::normalised_entropy;
-pub const OPTIMIZER_EPSILON: f32 = 1e-7;
 
 // ─────────────────────────────────────────────
-// 1.  POLICY NETWORK
+// ACTOR (POLICY) NETWORK
 // ─────────────────────────────────────────────
-/// Input  : 6 features
-/// Output : 2 action probabilities (softmax over [do-nothing, jump])
 #[derive(Module, Debug)]
 pub struct FlappyNet<B: Backend> {
-    linear1: Linear<B>, // 6 → 16
-    linear2: Linear<B>, // 16 → 16
-    linear3: Linear<B>, // 16 → 2
+    linear1: Linear<B>, // 8 → 32
+    linear2: Linear<B>, // 32 → 32
+    linear3: Linear<B>, // 32 → 2
     activation: Relu,
-
     dropout: Dropout,
 }
 
@@ -34,48 +32,50 @@ impl<B: Backend> FlappyNet<B> {
             dropout: DropoutConfig::new(0.2).init(),
             linear1: LinearConfig::new(8, 32).init(device),
             linear2: LinearConfig::new(32, 32).init(device),
-            linear3: LinearConfig::new(32, 2).init(device), // tiny weights → near-zero logits → ~[0.5, 0.5]
+            linear3: LinearConfig::new(32, 2).init(device),
         }
     }
 
-    /// Forward pass.
-    /// Input shape  : [batch, 6]
+    /// Input  shape : [batch, 8]
     /// Output shape : [batch, 2]  — softmax probabilities
-    pub fn forward(&self, x: Tensor<B, 2>) -> Tensor<B, 2> {
-        let training = true;
+    pub fn forward(&self, x: Tensor<B, 2>, training: bool) -> Tensor<B, 2> {
         let x = self.linear1.forward(x);
         let x = self.activation.forward(x);
         let x = if training { self.dropout.forward(x) } else { x };
         let x = self.linear2.forward(x);
         let x = self.activation.forward(x);
         let x = if training { self.dropout.forward(x) } else { x };
-        let logits = self.linear3.forward(x);
-        softmax(logits, 1) // → action probabilities
+        softmax(self.linear3.forward(x), 1)
     }
 }
 
 // ─────────────────────────────────────────────
-// 3.  AGENT
+// AGENT
 // ─────────────────────────────────────────────
-
+/// Each agent owns only its *actor* (FlappyNet + Adam).
+/// The critic lives outside, in the population / game-loop struct,
+/// and is passed in by `&mut` reference only when needed.
+///
+///   Population owns:  Vec<FlappyGradientAgent>  +  Critic
+///   Per-agent:        FlappyNet, its optimizer, episode buffer, stats
+///
+/// This means:
+///   • N agents share one V(s) — consistent baseline for all.
+///   • The critic is updated once per round with all agents' data pooled.
+///   • No Arc/Mutex needed — everything is single-threaded by design.
 pub struct FlappyGradientAgent<B: AutodiffBackend> {
     pub flappy: FlappyNet<B>,
     pub optimizer: OptimizerAdaptor<Adam, FlappyNet<B>, B>,
     pub device: B::Device,
-    /// Steps collected in the *current* episode for this agent.
     pub state: AgentState,
-    /// Discount factor γ
     pub stats: AgentStats,
 }
 
 impl<B: AutodiffBackend> FlappyGradientAgent<B> {
     pub fn new(device: B::Device) -> Self {
-        let flappy = FlappyNet::new(&device);
-
-        let optimizer = get_optimizer();
         Self {
-            flappy,
-            optimizer,
+            flappy: FlappyNet::new(&device),
+            optimizer: get_optimizer(),
             device,
             state: AgentState::new(),
             stats: AgentStats::new(),
@@ -84,17 +84,12 @@ impl<B: AutodiffBackend> FlappyGradientAgent<B> {
 
     // ── inference ──────────────────────────────────────────────────────────
 
-    /// Sample an action from the flappy distribution.
-    /// Returns (action, log_prob) — log_prob not needed at call-site but
-    /// useful for debugging / entropy logging.
     pub fn select_action(&mut self) -> Action {
-        let input = self.state_to_tensor(); // [1, 6]
-        // Run in no-grad context — we only need probabilities here.
-        let probs = self.flappy.forward(input); // [1, 2]
+        let input = self.state_to_tensor();
+        let probs = self.flappy.forward(input, false);
         let data = probs.clone().to_data();
         let raw: Vec<f32> = data.iter::<f32>().collect();
 
-        // Average normalised entropy over the batch.
         let entropy_sum: f32 = raw
             .chunks(2)
             .map(|row| {
@@ -105,17 +100,9 @@ impl<B: AutodiffBackend> FlappyGradientAgent<B> {
                 e
             })
             .sum();
-
         self.stats.entropy_sum += entropy_sum;
 
-        // Extract the probability of Jump (index 1).
-        let p_jump: f32 = probs
-            .clone()
-            .slice([0..1, 1..2])
-            .into_scalar()
-            .elem::<f32>();
-
-        // Stochastic sampling.
+        let p_jump: f32 = probs.slice([0..1, 1..2]).into_scalar().elem::<f32>();
         if rand::random::<f32>() < p_jump {
             Action::Jump
         } else {
@@ -125,7 +112,6 @@ impl<B: AutodiffBackend> FlappyGradientAgent<B> {
 
     // ── episode bookkeeping ────────────────────────────────────────────────
 
-    /// Call once per game tick after the environment returns a reward.
     pub fn record_step(&mut self, action: Action, reward: f32) {
         let state = self.state.get_state_features();
         self.state.episode.push(EpisodeStep {
@@ -135,55 +121,97 @@ impl<B: AutodiffBackend> FlappyGradientAgent<B> {
         });
     }
 
-    /// Call when the bird dies (episode ends).
-    /// Runs a full REINFORCE update and clears the episode buffer.
-    /// Returns the mean flappy loss for logging.
-    pub fn finish_episode(&mut self, levels: usize) -> f32 {
-        // ── 3a. Compute discounted returns G_t ────────────────────────────
+    // ── A2C episode update ─────────────────────────────────────────────────
+
+    /// Call when the bird dies.
+    ///
+    /// Responsibilities
+    /// ─────────────────
+    /// 1. Compute discounted returns G_t from the episode buffer.
+    /// 2. Query the *shared* critic for V(s_t) → advantages.
+    /// 3. Update the actor with ∇ log π · A − β·H.
+    /// 4. Return (flat_states, flat_returns, n) so the caller can pool
+    ///    this agent's data with others for a single critic update.
+    ///
+    /// The critic is NOT updated here — the caller does that once after
+    /// collecting data from ALL agents (see `Critic::update_batch`).
+    ///
+    /// Returns
+    /// ───────
+    /// `(actor_loss, flat_states, flat_returns, n)`
+    ///   • actor_loss   — scalar for logging
+    ///   • flat_states  — row-major f32, len n*8  (to be pooled)
+    ///   • flat_returns — f32, len n              (to be pooled)
+    ///   • n            — number of steps
+    pub fn finish_episode(&mut self, critic: &Critic<B>) -> (f32, Vec<f32>, Vec<f32>, usize) {
         let n = self.state.episode.len();
+        if n == 0 {
+            return (0.0, vec![], vec![], 0);
+        }
+
+        // ── a. Discounted returns G_t ──────────────────────────────────────
         let mut returns = vec![0.0f32; n];
         let mut running = 0.0f32;
-
         for t in (0..n).rev() {
             running = self.state.episode[t].reward + AgentDefault::default().gamma * running;
             returns[t] = running;
         }
 
-        // ── 3b. Normalise returns ─────────────────────────────────────────
-        let var: f32 = returns
-            .iter()
-            .map(|r| (r - self.stats.score_ema).powi(2))
-            .sum::<f32>()
-            / n as f32;
-
-        // how spread out this episode's returns are — plus epsilon so we never divide by zero
-        let std = var.sqrt() + 1e-8;
-
-        // shift each return by the historical baseline, scale by spread
-        // — below-average episodes produce negative advantages, above-average produce positive
-        let returns: Vec<f32> = returns
-            .iter()
-            .map(|r| (r - self.stats.score_ema) / std)
-            .collect();
-
-        // ── 3c. Build state batch tensor [n, 8] ──────────────────────────
-        let flat: Vec<f32> = self
+        // ── b. Flat state batch for this episode ───────────────────────────
+        let flat_states: Vec<f32> = self
             .state
             .episode
             .iter()
             .flat_map(|s| s.state.to_array())
             .collect();
-        let states = Tensor::<B, 1>::from_floats(flat.as_slice(), &self.device).reshape([n, 8]);
 
-        // ── 3d. Build action indices ──────────────────────────────────────
+        // ── c. Query shared critic → V(s_t) ───────────────────────────────
+        //   Returns plain f32 — no grad graph, safe to use immediately.
+        let state_values = critic.values_of(&flat_states, n);
+
+        // ── d. Advantages A_t = G_t − V(s_t), normalised ──────────────────
+        let advantages_raw: Vec<f32> = returns
+            .iter()
+            .zip(state_values.iter())
+            .map(|(g, v)| g - v)
+            .collect();
+
+        let adv_mean = advantages_raw.iter().sum::<f32>() / n as f32;
+        let adv_std = (advantages_raw
+            .iter()
+            .map(|a| (a - adv_mean).powi(2))
+            .sum::<f32>()
+            / n as f32)
+            .sqrt()
+            + 1e-8;
+
+        let advantages: Vec<f32> = advantages_raw
+            .iter()
+            .map(|a| (a - adv_mean) / adv_std)
+            .collect();
+
+        // ── e. Build tensors for actor update ─────────────────────────────
+        let states =
+            Tensor::<B, 1>::from_floats(flat_states.as_slice(), &self.device).reshape([n, 8]);
+
+        // ── f. Actor update ────────────────────────────────────────────────
+        let actor_loss = self.update_actor(&advantages, states, n);
+
+        // ── g. Clear episode buffer ────────────────────────────────────────
+
+        // Return raw episode data so the caller can pool it for the critic.
+        (actor_loss, flat_states, returns, n)
+    }
+
+    // ── private ────────────────────────────────────────────────────────────
+
+    fn update_actor(&mut self, advantages: &[f32], states: Tensor<B, 2>, n: usize) -> f32 {
         let action_idx: Vec<i64> = self.state.episode.iter().map(|s| s.action as i64).collect();
 
-        // ── 3e. Forward pass → stable log-probs via log_softmax ──────────
-        let logits = self.flappy.forward(states); // [n, 2]
-        let log_probs = burn::tensor::activation::log_softmax(logits.clone(), 1); // [n, 2]
-        let probs = log_probs.clone().exp(); // [n, 2]
+        let log_probs = burn::tensor::activation::log_softmax(self.flappy.forward(states, true), 1);
+        let probs = log_probs.clone().exp();
 
-        // ── 3f. Gather log_prob for the action actually taken ─────────────
+        // One-hot mask → gather log prob of the action taken
         let action_mask: Vec<f32> = (0..n)
             .flat_map(|i| {
                 let mut row = [0.0f32; 2];
@@ -195,18 +223,11 @@ impl<B: AutodiffBackend> FlappyGradientAgent<B> {
             Tensor::<B, 1>::from_floats(action_mask.as_slice(), &self.device).reshape([n, 2]);
         let selected_log_probs = (log_probs.clone() * mask).sum_dim(1); // [n, 1]
 
-        // ── 3g. Returns tensor [n, 1] ─────────────────────────────────────
-        let returns_t =
-            Tensor::<B, 1>::from_floats(returns.as_slice(), &self.device).reshape([n, 1]);
+        let adv_t = Tensor::<B, 1>::from_floats(advantages, &self.device).reshape([n, 1]);
+        let entropy = (probs * log_probs).sum_dim(1).mean().neg();
 
-        // ── 3h. Entropy bonus — keeps the policy from collapsing ──────────
-        let entropy = (probs * log_probs).sum_dim(1).mean().neg(); // scalar tensor
+        let loss = (selected_log_probs * adv_t).mean().neg() - entropy.mul_scalar(0.2f32);
 
-        // ── 3i. Final loss = REINFORCE - entropy bonus ────────────────────
-        let reinforce_loss = (selected_log_probs * returns_t).mean().neg();
-        let loss = reinforce_loss - entropy.mul_scalar(0.05f32);
-
-        // ── 3j. Back-prop + optimiser step ───────────────────────────────
         let loss_scalar: f32 = loss.clone().into_scalar().elem::<f32>();
         let grads = loss.backward();
         let grads = GradientsParams::from_grads(grads, &self.flappy);
@@ -215,25 +236,13 @@ impl<B: AutodiffBackend> FlappyGradientAgent<B> {
             self.flappy.clone(),
             grads,
         );
-
-        // ── 3k. Bookkeeping ───────────────────────────────────────────────
-
         loss_scalar
     }
-
-    // ── helpers ────────────────────────────────────────────────────────────
 
     fn state_to_tensor(&self) -> Tensor<B, 2> {
         let s = self.state.current_gamestate.unwrap();
         Tensor::<B, 1>::from_floats(s.to_array().as_slice(), &self.device).reshape([1, 8])
     }
-    // ─────────────────────────────────────────────────────────────────────────────
-    // 6.  WEIGHT PERTURBATION  (for replacement)
-    // ─────────────────────────────────────────────────────────────────────────────
-
-    /// Add Gaussian noise with std `scale` to every parameter of `net`.
-    /// This gives a slightly randomised child that still starts near the parent.
-    // PerturbMapper is here to edit weights (2D) and biases(1D) , hence the generic D
 
     pub fn perturb_weights(&mut self, scale: f32) -> FlappyNet<B> {
         let mut mapper = PerturbMapper {
@@ -253,7 +262,6 @@ struct PerturbMapper<B: Backend> {
     device: B::Device,
 }
 
-// useful for per weight , per Dimmension edition (_id)
 impl<B: Backend> ModuleMapper<B> for PerturbMapper<B> {
     fn map_float<const D: usize>(&mut self, _id: ParamId, tensor: Tensor<B, D>) -> Tensor<B, D> {
         let shape = tensor.shape();

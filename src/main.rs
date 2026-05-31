@@ -209,7 +209,7 @@ fn respawn_on_endgame(
 }
 
 fn spawn_birds(mut commands: Commands, asset_server: Res<AssetServer>) {
-    for n in 0..5 {
+    for n in 0..10 {
         commands.spawn(Bird::new(&*asset_server, false, n));
     }
 }
@@ -298,7 +298,7 @@ fn check_collisions(
     Ok(())
 }
 
-fn score_update(mut query: Query<&mut Text, With<ScoreText>>, score: Res<Score>) {
+fn _score_update(mut query: Query<&mut Text, With<ScoreText>>, score: Res<Score>) {
     for mut span in &mut query {
         span.0 = score.0.to_string();
     }

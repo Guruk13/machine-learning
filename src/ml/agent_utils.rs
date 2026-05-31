@@ -1,5 +1,3 @@
-use crate::ml::model::OPTIMIZER_EPSILON;
-
 use super::pruner::PruningConfig;
 use bevy::prelude::{Component, Reflect};
 
@@ -60,7 +58,7 @@ impl AgentStats {
         self.total_score = episode_return;
         // Score EMA
         //EMA initialization bias correction
-        if self.episodes == 1 {
+        if self.episodes == 0 {
             self.score_ema = episode_return;
         } else {
             self.score_ema =
@@ -128,8 +126,8 @@ pub struct RewardPrizes {
 impl Default for RewardPrizes {
     fn default() -> Self {
         Self {
-            dying: -50.0,
-            pipe_cleared: 10.,
+            dying: -5.0,
+            pipe_cleared: 5.,
             alive: 0.01,
             jump_cost: 0.1,
         }
@@ -180,7 +178,7 @@ pub struct AgentDefault {
 impl Default for AgentDefault {
     fn default() -> Self {
         Self {
-            gamma: 0.95,
+            gamma: 0.99,
             learning_rate: 1e-4,
         }
     }

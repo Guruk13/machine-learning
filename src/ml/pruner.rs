@@ -105,7 +105,7 @@ impl Default for PruningConfig {
             score_floor: 1.,     // tune to your reward scale
             score_alpha: 0.1,    // you have to improve at least by a percent each episode
 
-            warmup_episodes: 150,
+            warmup_episodes: 50,
             patience: 20,
 
             noise_scale: 0.01,
