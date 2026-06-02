@@ -1,5 +1,7 @@
 use super::pipes::*;
 use crate::ml::agent_utils::Action;
+use crate::ml::multiagent::AgentManager;
+use crate::player::Pipe;
 use crate::player::{Bird, BirdInventory, BirdJump, GameSets, Player, Velocity};
 use crate::player::{PipeBottom, PipeTop};
 use bevy::camera::primitives::Aabb;
@@ -7,8 +9,6 @@ use bevy::prelude::*;
 use burn::backend::Autodiff;
 use burn::backend::wgpu::Wgpu;
 use burn::tensor::backend::AutodiffBackend;
-
-use crate::ml::multiagent::AgentManager;
 
 use crate::ml::agent_utils::{GameStateFeatures, RewardPrizes};
 
@@ -142,9 +142,14 @@ fn think(
         let action = agent.select_action();
 
         //compute reward
-        let mut reward: f32 = if bird.dead && !bird.pipe_death {
+        let mut reward: f32 = if bird.dead {
             //dying soon is shameful
-            RewardPrizes::default().dying
+
+            if bird.pipe_death {
+                RewardPrizes::default().pipe_death
+            } else {
+                RewardPrizes::default().dying
+            }
         } else {
             RewardPrizes::default().alive * (agent.state.score as f32).powi(2).max(1.0)
         };
@@ -214,7 +219,12 @@ pub fn run_forwards_and_optims(
     live_inventory.0 = registry.0.clone();
     registry.0.clear();
 }
-pub fn no_birds_in_main_system(alive: Query<&Bird>, live_inventory: Res<BirdInventory>) -> bool {
+pub fn no_birds_in_main_system(
+    alive: Query<&Bird>,
+    live_inventory: Res<BirdInventory>,
+
+    mut commands: Commands,
+) -> bool {
     alive.is_empty() && live_inventory.0.is_empty()
 }
 #[derive(Component, Default, Clone, Copy)]

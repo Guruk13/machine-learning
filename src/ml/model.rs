@@ -226,7 +226,7 @@ impl<B: AutodiffBackend> FlappyGradientAgent<B> {
         let adv_t = Tensor::<B, 1>::from_floats(advantages, &self.device).reshape([n, 1]);
         let entropy = (probs * log_probs).sum_dim(1).mean().neg();
 
-        let loss = (selected_log_probs * adv_t).mean().neg() - entropy.mul_scalar(0.2f32);
+        let loss = (selected_log_probs * adv_t).mean().neg() - entropy.mul_scalar(0.01f32);
 
         let loss_scalar: f32 = loss.clone().into_scalar().elem::<f32>();
         let grads = loss.backward();

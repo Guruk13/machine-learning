@@ -342,7 +342,7 @@ fn bird_respawn(
     pipe_gaps: Query<(&Sprite, Entity), With<PointsGate>>,
 ) -> Result<()> {
     let translation = Vec2::new(-CANVAS_SIZE.x / 4.0, 0.0);
-    let bird_collider = BoundingCircle::new(translation, PLAYER_SIZE / 2. * 2.0); // spawn is clear of 50% a Bird's size
+    let bird_collider = BoundingCircle::new(translation, 75.0); // spawn is clear of 50% a Bird's size
 
     let mut has_intersected = pipe_segments.iter().any(|(sprite, entity)| {
         let pipe_transform = transform_helper.compute_global_transform(entity).unwrap();
@@ -379,7 +379,7 @@ fn bird_respawn(
 
 fn on_bird_jump(event: On<BirdJump>, mut velocities: Query<&mut Velocity, With<Bird>>) {
     if let Ok(mut velocity) = velocities.get_mut(event.0) {
-        velocity.0 = 400.; // this is the ONE place that knows how jumping works
+        velocity.0 = 300.; // this is the ONE place that knows how jumping works
     }
 }
 

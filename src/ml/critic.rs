@@ -117,7 +117,6 @@ impl<B: AutodiffBackend> Critic<B> {
         debug_assert_eq!(flat_states.len(), n * 8);
         let t = Tensor::<B, 1>::from_floats(flat_states, &self.device).reshape([n, 8]);
         let v = self.net.forward(t); // [n, 1]
-        use burn::tensor::ElementConversion;
         v.to_data().iter::<f32>().collect()
     }
 
