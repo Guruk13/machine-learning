@@ -64,13 +64,16 @@ impl<B: AutodiffBackend> AgentManager<B> {
             // The optimiser state is always freshly initialised.
             let optimizer = get_optimizer();
             let up_agent_net = self.inner[&best].flappy.clone();
+
+            let total_episodes =
+                self.inner[&key].stats.total_episodes + self.inner[&key].stats.episodes;
             let newagent: FlappyGradientAgent<B> = FlappyGradientAgent {
                 flappy: up_agent_net,
                 optimizer: optimizer,
                 device: self.device.clone(),
                 state: AgentState::new(),
                 //new agent from net but keep evaluating its progression
-                stats: AgentStats::new(),
+                stats: AgentStats::new(Some(total_episodes)),
             };
 
             self.inner.insert(key, newagent);

@@ -171,12 +171,10 @@ fn think(
         }
 
         let gap_centre = (state.next_pipe_top_y + state.next_pipe_bottom_y) / 2.0;
-        let gap_half = (state.next_pipe_top_y - state.next_pipe_bottom_y).abs() / 2.0;
-
-        let dist_to_centre = (state.bird_y - gap_centre).abs();
-        let centre_bonus = 1.0 - (dist_to_centre / gap_half).clamp(0.0, 1.0); // 1.0 at centre, 0.0 at edge
-
-        reward += centre_bonus;
+        let gap_centre_penalty = (state.bird_y - gap_centre).abs() * 0.01;
+        // Small bonus for staying near the centre of the gap
+        reward = reward - gap_centre_penalty;
+        // warn!("{:?}", reward);
         //
         agent.record_step(action.clone(), reward);
         match action {

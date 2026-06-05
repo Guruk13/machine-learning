@@ -30,13 +30,13 @@ pub struct AgentStats {
     pub episodes: u64,
 
     pub entropy_sum: f32,
-
     pub total_score: f32,
+    pub total_episodes: u64,
 }
 
 //Exponential Moving Average (EMA)
 impl AgentStats {
-    pub fn new() -> Self {
+    pub fn new(total_episodes: Option<u64>) -> Self {
         Self {
             entropy_ema: 1.0, // start at max entropy (uninitialised)
             entropy_violation_streak: 0,
@@ -45,6 +45,7 @@ impl AgentStats {
             episodes: 0,
             entropy_sum: 0.0,
             total_score: 0.,
+            total_episodes: total_episodes.unwrap_or(0),
         }
     }
 
@@ -128,11 +129,11 @@ pub struct RewardPrizes {
 impl Default for RewardPrizes {
     fn default() -> Self {
         Self {
-            dying: -10.0,
-            pipe_death: -5.0,
+            dying: -30.0,
+            pipe_death: -1.0,
 
-            pipe_cleared: 5.,
-            alive: 0.01,
+            pipe_cleared: 10.,
+            alive: 1.,
             jump_cost: 0.,
         }
     }

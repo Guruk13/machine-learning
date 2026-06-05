@@ -30,7 +30,6 @@ use burn::tensor::backend::AutodiffBackend;
 
 use super::agent_utils::AgentStats;
 use super::model::FlappyGradientAgent;
-use bevy::prelude::warn;
 use std::collections::HashMap;
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -103,7 +102,7 @@ impl Default for PruningConfig {
             //degrade the entropc bounds very slowly
             entropy_alpha: 0.01, //
             score_floor: 1.,     // tune to your reward scale
-            score_alpha: 0.1,    // you have to improve at least by a percent each episode
+            score_alpha: 0.5,    // you have to improve at least by a percent each episode
 
             warmup_episodes: 50,
             patience: 20,
@@ -186,16 +185,6 @@ impl PopulationManager {
         agents
             .iter()
             .for_each(|(key, agent): (&u32, &FlappyGradientAgent<B>)| {
-                bevy::prelude::info!(
-                   "Agent {key} | ep={} | entropy_ema={:.3} | score_ema={:.3} | total_score={:.3}  | e_streak={} | s_streak={}",
-                   agent.stats.episodes,
-                   agent.stats.entropy_ema,
-                   agent.stats.score_ema,
-                   agent.stats.total_score,
-
-                   agent.stats.entropy_violation_streak,
-                   agent.stats.score_violation_streak,
-               );
                 if self.should_prune(agent.stats) {
                     to_prune.push(*key);
                 }
@@ -208,19 +197,19 @@ impl PopulationManager {
         {
             best_idx = *key;
         } else {
-            warn!("no best agent ... ");
             best_idx = *agents.keys().next().unwrap();
         }
 
         for &idx in &to_prune {
             let reason = self.prune_reason(agents[&idx].stats);
-            bevy::prelude::warn!(
+            bevy::prelude::info!(
                 "Agent {idx} pruned after {} episodes — {reason} \
-                 (entropy_ema={:.3}, score_ema={:.3}, total_score={})",
+                 (entropy_ema={:.3}, score_ema={:.3}, total_score={}, total_episodes={})",
                 agents[&idx].stats.episodes,
                 agents[&idx].stats.entropy_ema,
                 agents[&idx].stats.score_ema,
-                agents[&idx].stats.total_score
+                agents[&idx].stats.total_score,
+                agents[&idx].stats.total_episodes
             );
 
             // Reset statistics for the new agent.

@@ -18,9 +18,8 @@ use super::pruner::normalised_entropy;
 // ─────────────────────────────────────────────
 #[derive(Module, Debug)]
 pub struct FlappyNet<B: Backend> {
-    linear1: Linear<B>, // 8 → 32
-    linear2: Linear<B>, // 32 → 32
-    linear3: Linear<B>, // 32 → 2
+    linear1: Linear<B>, // 5 → 16
+    linear2: Linear<B>, // 16 → 2
     activation: Relu,
     dropout: Dropout,
 }
@@ -30,9 +29,8 @@ impl<B: Backend> FlappyNet<B> {
         Self {
             activation: Relu::new(),
             dropout: DropoutConfig::new(0.2).init(),
-            linear1: LinearConfig::new(8, 32).init(device),
-            linear2: LinearConfig::new(32, 32).init(device),
-            linear3: LinearConfig::new(32, 2).init(device),
+            linear1: LinearConfig::new(8, 16).init(device),
+            linear2: LinearConfig::new(16, 2).init(device),
         }
     }
 
@@ -41,11 +39,7 @@ impl<B: Backend> FlappyNet<B> {
     pub fn forward(&self, x: Tensor<B, 2>, training: bool) -> Tensor<B, 2> {
         let x = self.linear1.forward(x);
         let x = self.activation.forward(x);
-        let x = if training { self.dropout.forward(x) } else { x };
-        let x = self.linear2.forward(x);
-        let x = self.activation.forward(x);
-        let x = if training { self.dropout.forward(x) } else { x };
-        softmax(self.linear3.forward(x), 1)
+        softmax(self.linear2.forward(x), 1)
     }
 }
 
@@ -78,7 +72,7 @@ impl<B: AutodiffBackend> FlappyGradientAgent<B> {
             optimizer: get_optimizer(),
             device,
             state: AgentState::new(),
-            stats: AgentStats::new(),
+            stats: AgentStats::new(None),
         }
     }
 
