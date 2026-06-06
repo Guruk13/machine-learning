@@ -129,10 +129,10 @@ pub struct RewardPrizes {
 impl Default for RewardPrizes {
     fn default() -> Self {
         Self {
-            dying: -30.0,
+            dying: -10.0,
             pipe_death: -1.0,
 
-            pipe_cleared: 10.,
+            pipe_cleared: 30.,
             alive: 1.,
             jump_cost: 0.,
         }

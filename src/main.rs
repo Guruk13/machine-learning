@@ -11,7 +11,7 @@ use bevy::{color::palettes::tailwind::RED_400, image::ImageLoaderSettings};
 use flappy_bird::{ml::agent_utils::GameStateFeatures, *};
 
 use crate::player::*;
-use bevy_inspector_egui::{bevy_egui::EguiPlugin, quick::WorldInspectorPlugin};
+
 use flappy_bird::BrainPlugin;
 fn main() -> AppExit {
     App::new()
@@ -75,11 +75,6 @@ fn main() -> AppExit {
         .add_systems(Startup, set_time_scale)
         .add_systems(Update, toggle_pause)
         // AI
-        .add_plugins(EguiPlugin::default())
-        .add_plugins(WorldInspectorPlugin::new())
-        .register_type::<GameStateFeatures>()
-        .register_type::<Bird>()
-        .register_type::<BirdInventory>()
         .add_plugins(BrainPlugin)
         .run()
 }
