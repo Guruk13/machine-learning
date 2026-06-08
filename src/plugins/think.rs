@@ -1,16 +1,58 @@
 use super::pipes::*;
 use crate::ml::agent_utils::Action;
+use crate::ml::agent_utils::{GameStateFeatures, RewardPrizes};
 use crate::ml::multiagent::AgentManager;
 use crate::player::Pipe;
 use crate::player::{Bird, BirdInventory, BirdJump, GameSets, Player, Velocity};
 use crate::player::{PipeBottom, PipeTop};
 use bevy::camera::primitives::Aabb;
 use bevy::prelude::*;
+use burn::backend::wgpu::{init_device, Wgpu, WgpuDevice, WgpuSetup};
 use burn::backend::Autodiff;
-use burn::backend::wgpu::Wgpu;
+use burn::cubecl::wgpu::RuntimeOptions;
 use burn::tensor::backend::AutodiffBackend;
+use burn::tensor::Device;
 
-use crate::ml::agent_utils::{GameStateFeatures, RewardPrizes};
+//init a second instance of wgpu to prevent stuttering and allow cubecl optimisations
+//async fn _init_burn_independent() -> WgpuDevice {
+//    // New Instance = new wgpu context, completely independent from bevy's
+//    let desc = wgpu::InstanceDescriptor {
+//        backends: wgpu::Backends::VULKAN,
+//        flags: wgpu::InstanceFlags::default(),
+//        memory_budget_thresholds: wgpu::MemoryBudgetThresholds::default(),
+//        backend_options: wgpu::BackendOptions::default(),
+//
+//        display: None,
+//    };
+//
+//    let instance = wgpu::Instance::new(desc);
+//
+//    let adapter = instance
+//        .request_adapter(&wgpu::RequestAdapterOptions {
+//            power_preference: wgpu::PowerPreference::HighPerformance,
+//            compatible_surface: None,
+//            force_fallback_adapter: false,
+//        })
+//        .await
+//        .unwrap();
+//
+//    let (device, queue) = adapter
+//        .request_device(&wgpu::DeviceDescriptor::default())
+//        .await
+//        .unwrap();
+//
+//    let setup = WgpuSetup {
+//        instance, // <-- fresh instance, not bevy's
+//        adapter,
+//        device,
+//        queue,
+//        backend: wgpu::Backend::Vulkan,
+//    };
+//
+//    let burn_device = WgpuDevice::Existing(0);
+//    init_device(setup, RuntimeOptions::default());
+//    burn_device
+//}
 
 pub struct AMRessource<B: AutodiffBackend> {
     agent_manager: AgentManager<B>,
@@ -29,8 +71,7 @@ pub struct DeadBirdRegistry(pub Vec<u32>);
 
 impl Plugin for BrainPlugin {
     fn build(&self, app: &mut App) {
-        let device: <MyAutodiffBackend as burn::tensor::backend::Backend>::Device =
-            Default::default();
+        let device: Device<MyAutodiffBackend> = Default::default();
 
         let ressource = AMRessource::<MyAutodiffBackend> {
             agent_manager: AgentManager::new(device),
@@ -171,7 +212,7 @@ fn think(
         }
 
         let gap_centre = (state.next_pipe_top_y + state.next_pipe_bottom_y) / 2.0;
-        let gap_centre_penalty = (state.bird_y - gap_centre).abs() * 0.01;
+        let gap_centre_penalty = (state.bird_y - gap_centre).abs() * 0.001;
         // Small bonus for staying near the centre of the gap
         reward = reward - gap_centre_penalty;
         // warn!("{:?}", reward);

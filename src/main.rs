@@ -110,9 +110,9 @@ fn startup(
             ..default()
         },
         Text::new("0"),
-        TextLayout::new_with_justify(Justify::Center),
+        TextLayout::new(Justify::Center, LineBreak::AnyCharacter),
         TextFont {
-            font_size: 33.0,
+            font_size: bevy::prelude::FontSize::Px(33.0),
             ..default()
         },
         TextColor(Srgba::hex("#282828").unwrap().into()),
@@ -204,7 +204,7 @@ fn respawn_on_endgame(
 }
 
 fn spawn_birds(mut commands: Commands, asset_server: Res<AssetServer>) {
-    for n in 0..10 {
+    for n in 0..5 {
         commands.spawn(Bird::new(&*asset_server, false, n));
     }
 }
@@ -322,7 +322,7 @@ impl Material2d for BackgroundMaterial {
 
 fn enforce_bird_direction(birds: Query<(&mut Transform, &Velocity), With<Bird>>) {
     for mut player in birds {
-        let calculated_velocity = Vec2::new(PIPE_SPEED, player.1.0);
+        let calculated_velocity = Vec2::new(PIPE_SPEED, player.1 .0);
         player.0.rotation = Quat::from_rotation_z(calculated_velocity.to_angle());
     }
 }
@@ -381,8 +381,8 @@ fn on_bird_jump(event: On<BirdJump>, mut velocities: Query<&mut Velocity, With<B
 //debug helper
 fn set_time_scale(mut time: ResMut<Time<Virtual>>) {
     time.set_relative_speed(0.5); // 2x faster
-    // time.set_relative_speed(0.5); // half speed
-    // time.set_relative_speed(0.0); // pause
+                                  // time.set_relative_speed(0.5); // half speed
+                                  // time.set_relative_speed(0.0); // pause
 }
 fn toggle_pause(mut time: ResMut<Time<Virtual>>, keys: Res<ButtonInput<KeyCode>>) {
     if keys.just_pressed(KeyCode::Space) {

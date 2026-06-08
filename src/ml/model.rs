@@ -1,17 +1,17 @@
 use burn::nn::DropoutConfig;
 use burn::tensor::ElementConversion;
 use burn::{
-    module::{Module, ModuleMapper, ParamId},
+    module::{Module, ModuleMapper, Param, ParamId},
     nn::{Dropout, Linear, LinearConfig, Relu},
-    optim::{Adam, AdamConfig, GradientsParams, Optimizer, adaptor::OptimizerAdaptor},
+    optim::{adaptor::OptimizerAdaptor, Adam, AdamConfig, GradientsParams, Optimizer},
     prelude::Backend,
-    tensor::{Distribution, Tensor, activation::softmax, backend::AutodiffBackend},
+    tensor::{activation::softmax, backend::AutodiffBackend, Distribution, Tensor},
 };
 
-use super::OPTIMIZER_EPSILON;
 use super::agent_utils::{Action, AgentDefault, AgentState, AgentStats, EpisodeStep};
 use super::critic::Critic;
 use super::pruner::normalised_entropy;
+use super::OPTIMIZER_EPSILON;
 
 // ─────────────────────────────────────────────
 // ACTOR (POLICY) NETWORK
@@ -257,13 +257,13 @@ struct PerturbMapper<B: Backend> {
 }
 
 impl<B: Backend> ModuleMapper<B> for PerturbMapper<B> {
-    fn map_float<const D: usize>(&mut self, _id: ParamId, tensor: Tensor<B, D>) -> Tensor<B, D> {
-        let shape = tensor.shape();
+    fn map_float<const D: usize>(&mut self, tensor: Param<Tensor<B, D>>) -> Param<Tensor<B, D>> {
+        let shape = tensor.val().shape();
         let noise = Tensor::<B, D>::random(
             shape,
             Distribution::Normal(0.0, self.scale as f64),
             &self.device,
         );
-        tensor + noise
+        tensor.map(|t| t + noise)
     }
 }

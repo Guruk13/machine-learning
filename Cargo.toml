@@ -1,16 +1,22 @@
-
 [package]
 name = "flappy-bird"
 version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-bevy = "0.18.1"
+bevy = "0.19.0-rc.2"
 log = { version = "0.4", features = ["max_level_debug", "release_max_level_warn"] }
 tracing = { version = "0.1", features = ["max_level_debug", "release_max_level_warn"] }
-burn = { version = "0.17", features = ["autodiff", "wgpu"], default-features = false }
-rand = "0.10.1"
+burn = { version = "0.21", features = ["autodiff", "wgpu", "cubecl"], default-features = false }
+rand = { version = "0.10.1", default-features = false, features = ["std", "std_rng", "thread_rng"] }
 getrandom = { version = "0.3", features = ["wasm_js"] }
+uuid = { version = "1.23.2", features = ["js"] }
+pollster = "0.4.0"
 
 [target.wasm32-unknown-unknown.dependencies]
-getrandom = { version = "0.3", features = ["wasm_js"] }
+getrandom = { version = "0.4", features = ["wasm_js"] }
+uuid = { version = "1.23.2", features = ["js"] }
+
+
+[patch.crates-io]
+bevy = { git = "https://github.com/bevyengine/bevy", tag = "v0.19.0-rc.2" }
