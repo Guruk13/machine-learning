@@ -1,3 +1,4 @@
+#![allow(warnings)]
 use bevy::{
     camera::ScalingMode,
     image::ImageAddressMode,
