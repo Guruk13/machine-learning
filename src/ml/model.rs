@@ -78,7 +78,7 @@ impl<B: AutodiffBackend> FlappyGradientAgent<B> {
 
     // ── inference ──────────────────────────────────────────────────────────
 
-    pub async fn select_action(&mut self) -> Action {
+    pub fn select_action(&mut self) -> Action {
         let input = self.state_to_tensor();
         let probs = self.flappy.forward(input, false);
         let data = probs.clone().into_data();
@@ -96,7 +96,7 @@ impl<B: AutodiffBackend> FlappyGradientAgent<B> {
             .sum();
         self.stats.entropy_sum += entropy_sum;
 
-        let p_jump: f32 = probs.slice([0..1, 1..2]).into_scalar_async().await.unwrap().elem::<f32>();
+        let p_jump: f32 = probs.slice([0..1, 1..2]).into_scalar().elem::<f32>();
         if rand::random::<f32>() < p_jump {
             Action::Jump
         } else {
@@ -137,7 +137,7 @@ impl<B: AutodiffBackend> FlappyGradientAgent<B> {
     ///   • flat_states  — row-major f32, len n*8  (to be pooled)
     ///   • flat_returns — f32, len n              (to be pooled)
     ///   • n            — number of steps
-    pub async fn finish_episode(&mut self, critic: &Critic<B>) -> (f32, Vec<f32>, Vec<f32>, usize) {
+    pub fn finish_episode(&mut self, critic: &Critic<B>) -> (f32, Vec<f32>, Vec<f32>, usize) {
         let n = self.state.episode.len();
         if n == 0 {
             return (0.0, vec![], vec![], 0);
@@ -161,7 +161,7 @@ impl<B: AutodiffBackend> FlappyGradientAgent<B> {
 
         // ── c. Query shared critic → V(s_t) ───────────────────────────────
         //   Returns plain f32 — no grad graph, safe to use immediately.
-        let state_values = critic.values_of(&flat_states, n).await;
+        let state_values = critic.values_of(&flat_states, n);
 
         // ── d. Advantages A_t = G_t − V(s_t), normalised ──────────────────
         let advantages_raw: Vec<f32> = returns
@@ -189,7 +189,7 @@ impl<B: AutodiffBackend> FlappyGradientAgent<B> {
             Tensor::<B, 1>::from_floats(flat_states.as_slice(), &self.device).reshape([n, 8]);
 
         // ── f. Actor update ────────────────────────────────────────────────
-        let actor_loss = self.update_actor(&advantages, states, n).await;
+        let actor_loss = self.update_actor(&advantages, states, n);
 
         // ── g. Clear episode buffer ────────────────────────────────────────
 
@@ -199,7 +199,7 @@ impl<B: AutodiffBackend> FlappyGradientAgent<B> {
 
     // ── private ────────────────────────────────────────────────────────────
 
-    async fn update_actor(&mut self, advantages: &[f32], states: Tensor<B, 2>, n: usize) -> f32 {
+    fn update_actor(&mut self, advantages: &[f32], states: Tensor<B, 2>, n: usize) -> f32 {
         let action_idx: Vec<i64> = self.state.episode.iter().map(|s| s.action as i64).collect();
 
         let log_probs = burn::tensor::activation::log_softmax(self.flappy.forward(states, true), 1);
@@ -222,7 +222,7 @@ impl<B: AutodiffBackend> FlappyGradientAgent<B> {
 
         let loss = (selected_log_probs * adv_t).mean().neg() - entropy.mul_scalar(0.01f32);
 
-        let loss_scalar: f32 = loss.clone().into_scalar_async().await.unwrap().elem::<f32>();
+        let loss_scalar: f32 = loss.clone().into_scalar().elem::<f32>();
         let grads = loss.backward();
         let grads = GradientsParams::from_grads(grads, &self.flappy);
         self.flappy = self.optimizer.step(

@@ -180,7 +180,7 @@ fn think(
         let agent = am_ressource.agent_manager.bind_agent(bird.uid, state);
         //forward
 
-        let action = pollster::block_on(agent.select_action());
+        let action = agent.select_action();
 
         //compute reward
         let mut reward: f32 = if bird.dead {
@@ -246,7 +246,7 @@ pub fn run_forwards_and_optims(
     mut live_inventory: ResMut<BirdInventory>,
 ) {
     //run the forward function
-    pollster::block_on(am_ressource.agent_manager.agents_over());
+    am_ressource.agent_manager.agents_over();
 
     //grade general behavior
     am_ressource.agent_manager.update_stats(&registry.0);

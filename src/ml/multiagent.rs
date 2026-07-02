@@ -107,13 +107,13 @@ impl<B: AutodiffBackend> AgentManager<B> {
 
     ///  may Returns the loss for logging / display.
 
-    pub async fn agents_over(&mut self) {
+    pub fn agents_over(&mut self) {
         let mut all_states = Vec::<f32>::new();
         let mut all_returns = Vec::<f32>::new();
         let mut total_steps = 0usize;
 
         for (_, agent) in self.inner.iter_mut() {
-            let (_actor_loss, states, returns, n) = agent.finish_episode(&self.critic).await;
+            let (_actor_loss, states, returns, n) = agent.finish_episode(&self.critic);
 
             all_states.extend(states);
             all_returns.extend(returns);
@@ -126,7 +126,7 @@ impl<B: AutodiffBackend> AgentManager<B> {
             &all_returns,
             total_steps,
             AgentDefault::default().learning_rate,
-        ).await;
+        );
     }
     //  match self.inner.get_mut(&key) {
     //      Some(agent) => {

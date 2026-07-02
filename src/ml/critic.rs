@@ -113,7 +113,7 @@ impl<B: AutodiffBackend> Critic<B> {
     /// Called by every agent individually during `finish_episode`; no grad
     /// graph is built on this path (the values are detached to plain f32
     /// before being handed back to the agents).
-    pub async fn values_of(&self, flat_states: &[f32], n: usize) -> Vec<f32> {
+    pub fn values_of(&self, flat_states: &[f32], n: usize) -> Vec<f32> {
         debug_assert_eq!(flat_states.len(), n * 8);
         let t = Tensor::<B, 1>::from_floats(flat_states, &self.device).reshape([n, 8]);
         let v = self.net.forward(t); // [n, 1]
@@ -136,7 +136,7 @@ impl<B: AutodiffBackend> Critic<B> {
     /// Design note: pooling all agents' data before the backward pass means
     /// one Adam step sees a much larger and more diverse batch than any single
     /// agent could provide, which stabilises V(s) early in training.
-    pub async fn update_batch(
+    pub fn update_batch(
         &mut self,
         flat_states: &[f32],
         flat_returns: &[f32],
@@ -155,7 +155,7 @@ impl<B: AutodiffBackend> Critic<B> {
         let loss = mse_loss(predicted, targets); // scalar
 
         use burn::tensor::ElementConversion;
-        let loss_scalar: f32 = loss.clone().into_scalar_async().await.unwrap().elem::<f32>();
+        let loss_scalar: f32 = loss.clone().into_scalar().elem::<f32>();
 
         let grads = loss.backward();
         let grads = GradientsParams::from_grads(grads, &self.net);
