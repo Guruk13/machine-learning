@@ -13,10 +13,37 @@ use flappy_bird::{ml::agent_utils::GameStateFeatures, *};
 
 use crate::player::*;
 
+use crate::player::Pipe;
+
+use crate::ml::multiagent::AgentManager;
+use burn::tensor::Device;
+use flappy_bird::AMRessource;
 use flappy_bird::BrainPlugin;
-fn main() -> AppExit {
+
+fn main() {
+    // sync main — just kicks off the async work and doesn't wait for it
+    #[cfg(target_arch = "wasm32")]
+    {
+        wasm_bindgen_futures::spawn_local(async_main());
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        pollster::block_on(async_main());
+    }
+}
+async fn async_main() -> AppExit {
+    let device: Device<MyAutodiffBackend> = Default::default();
+    burn::backend::wgpu::init_setup_async::<burn::backend::wgpu::graphics::WebGpu>(
+        &device,
+        Default::default(),
+    )
+    .await;
+
     App::new()
         .init_resource::<Score>()
+        .insert_non_send_resource(AMRessource::<MyAutodiffBackend> {
+            agent_manager: AgentManager::new(device),
+        })
         .insert_resource(BirdInventory(vec![]))
         .configure_sets(
             FixedUpdate,
