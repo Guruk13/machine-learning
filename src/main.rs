@@ -31,7 +31,7 @@ fn main() {
         pollster::block_on(async_main());
     }
 }
-async fn async_main() -> AppExit {
+async fn async_main() {
     let device: Device<MyAutodiffBackend> = Default::default();
     burn::backend::wgpu::init_setup_async::<burn::backend::wgpu::graphics::WebGpu>(
         &device,
@@ -104,7 +104,7 @@ async fn async_main() -> AppExit {
         .add_systems(Update, toggle_pause)
         // AI
         .add_plugins(BrainPlugin)
-        .run()
+        .run();
 }
 
 #[derive(Event)]

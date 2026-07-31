@@ -117,11 +117,7 @@ impl<B: AutodiffBackend> Critic<B> {
         debug_assert_eq!(flat_states.len(), n * 8);
         let t = Tensor::<B, 1>::from_floats(flat_states, &self.device).reshape([n, 8]);
         let v = self.net.forward(t); // [n, 1]
-        // Use async variant with pollster to avoid blocking future panic on WASM
-        pollster::block_on(v.into_data_async())
-            .expect("Failed to read tensor data asynchronously")
-            .iter::<f32>()
-            .collect()
+        v.to_data().iter::<f32>().collect()
     }
 
     // ── batched training ───────────────────────────────────────────────────
@@ -159,10 +155,7 @@ impl<B: AutodiffBackend> Critic<B> {
         let loss = mse_loss(predicted, targets); // scalar
 
         use burn::tensor::ElementConversion;
-        // Use async variant with pollster to avoid blocking future panic on WASM
-        let loss_scalar: f32 = pollster::block_on(loss.clone().into_scalar_async())
-            .expect("Failed to read scalar asynchronously")
-            .elem::<f32>();
+        let loss_scalar: f32 = loss.clone().into_scalar().elem::<f32>();
 
         let grads = loss.backward();
         let grads = GradientsParams::from_grads(grads, &self.net);

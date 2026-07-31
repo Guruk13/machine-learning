@@ -81,9 +81,7 @@ impl<B: AutodiffBackend> FlappyGradientAgent<B> {
     pub fn select_action(&mut self) -> Action {
         let input = self.state_to_tensor();
         let probs = self.flappy.forward(input, false);
-        // Use async variant with pollster to avoid blocking future panic on WASM
-        let data = pollster::block_on(probs.clone().into_data_async())
-            .expect("Failed to read tensor data asynchronously");
+        let data = probs.clone().to_data();
         let raw: Vec<f32> = data.iter::<f32>().collect();
 
         let entropy_sum: f32 = raw
@@ -98,10 +96,7 @@ impl<B: AutodiffBackend> FlappyGradientAgent<B> {
             .sum();
         self.stats.entropy_sum += entropy_sum;
 
-        // Use async variant with pollster for scalar extraction
-        let p_jump: f32 = pollster::block_on(probs.slice([0..1, 1..2]).into_scalar_async())
-            .expect("Failed to read scalar asynchronously")
-            .elem::<f32>();
+        let p_jump: f32 = probs.slice([0..1, 1..2]).into_scalar().elem::<f32>();
         if rand::random::<f32>() < p_jump {
             Action::Jump
         } else {
@@ -227,10 +222,7 @@ impl<B: AutodiffBackend> FlappyGradientAgent<B> {
 
         let loss = (selected_log_probs * adv_t).mean().neg() - entropy.mul_scalar(0.01f32);
 
-        // Use async variant with pollster to avoid blocking future panic on WASM
-        let loss_scalar: f32 = pollster::block_on(loss.clone().into_scalar_async())
-            .expect("Failed to read scalar asynchronously")
-            .elem::<f32>();
+        let loss_scalar: f32 = loss.clone().into_scalar().elem::<f32>();
         let grads = loss.backward();
         let grads = GradientsParams::from_grads(grads, &self.flappy);
         self.flappy = self.optimizer.step(
