@@ -2,26 +2,15 @@ use super::pipes::*;
 use crate::ml::agent_utils::Action;
 use crate::ml::agent_utils::{GameStateFeatures, RewardPrizes};
 use crate::ml::multiagent::AgentManager;
-use crate::player::Pipe;
 use crate::player::{Bird, BirdInventory, BirdJump, GameSets, Player, Velocity};
 use crate::player::{PipeBottom, PipeTop};
+use crate::AMRessource;
 use bevy::camera::primitives::Aabb;
 use bevy::prelude::*;
-use burn::backend::wgpu::{init_device, Wgpu, WgpuDevice, WgpuSetup};
-use burn::backend::Autodiff;
-use burn::cubecl::wgpu::RuntimeOptions;
-use burn::tensor::backend::AutodiffBackend;
+
+use crate::MyAutodiffBackend;
+
 use burn::tensor::Device;
-
-pub struct AMRessource<B: AutodiffBackend> {
-    agent_manager: AgentManager<B>,
-}
-
-type MyBackend = Wgpu<f32, i32>;
-type MyAutodiffBackend = Autodiff<MyBackend>;
-
-unsafe impl<B: AutodiffBackend> Sync for AMRessource<B> {}
-
 pub struct BrainPlugin;
 
 // to be able to run updates on every agent without cutting some agent's experience , store the birds here , then respawn once optimizations are through
@@ -29,18 +18,7 @@ pub struct BrainPlugin;
 pub struct DeadBirdRegistry(pub Vec<u32>);
 
 impl Plugin for BrainPlugin {
-    async fn build(&self, app: &mut App) {
-        let device: Device<MyAutodiffBackend> = Default::default();
-        burn::backend::wgpu::init_setup_async::<burn::backend::wgpu::graphics::Vulkan>(
-            &device,
-            Default::default(),
-        );
-
-        let ressource = AMRessource::<MyAutodiffBackend> {
-            agent_manager: AgentManager::new(device),
-        };
-
-        app.insert_non_send_resource(ressource);
+    fn build(&self, app: &mut App) {
         app.add_systems(
             FixedUpdate,
             (
