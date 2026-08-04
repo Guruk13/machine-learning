@@ -22,14 +22,7 @@ use flappy_bird::BrainPlugin;
 
 fn main() {
     // sync main — just kicks off the async work and doesn't wait for it
-    #[cfg(target_arch = "wasm32")]
-    {
-        wasm_bindgen_futures::spawn_local(async_main());
-    }
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        pollster::block_on(async_main());
-    }
+    wasm_bindgen_futures::spawn_local(async_main());
 }
 async fn async_main() {
     let device: Device<MyAutodiffBackend> = Default::default();

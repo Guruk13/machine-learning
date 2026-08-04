@@ -12,20 +12,22 @@ use super::agent_utils::{Action, AgentDefault, AgentState, AgentStats, EpisodeSt
 use super::critic::Critic;
 use super::pruner::normalised_entropy;
 use super::OPTIMIZER_EPSILON;
-
+use crate::MyAutodiffBackend;
+use burn::tensor::Device;
+use wasm_bindgen::prelude::*;
 // ─────────────────────────────────────────────
 // ACTOR (POLICY) NETWORK
 // ─────────────────────────────────────────────
-#[derive(Module, Debug)]
-pub struct FlappyNet<B: Backend> {
-    linear1: Linear<B>, // 5 → 16
-    linear2: Linear<B>, // 16 → 2
+#[derive(Module, Debug, Clone)]
+pub struct FlappyNet {
+    linear1: Linear<MyAutodiffBackend>, // 5 → 16
+    linear2: Linear<MyAutodiffBackend>, // 16 → 2
     activation: Relu,
     dropout: Dropout,
 }
 
-impl<B: Backend> FlappyNet<B> {
-    pub fn new(device: &B::Device) -> Self {
+impl FlappyNet {
+    pub fn new(device: &Device<MyAutodiffBackend>) -> Self {
         Self {
             activation: Relu::new(),
             dropout: DropoutConfig::new(0.2).init(),
@@ -36,7 +38,11 @@ impl<B: Backend> FlappyNet<B> {
 
     /// Input  shape : [batch, 8]
     /// Output shape : [batch, 2]  — softmax probabilities
-    pub fn forward(&self, x: Tensor<B, 2>, training: bool) -> Tensor<B, 2> {
+    pub fn forward(
+        &self,
+        x: Tensor<MyAutodiffBackend, 2>,
+        training: bool,
+    ) -> Tensor<MyAutodiffBackend, 2> {
         let x = self.linear1.forward(x);
         let x = self.activation.forward(x);
         softmax(self.linear2.forward(x), 1)
@@ -57,16 +63,20 @@ impl<B: Backend> FlappyNet<B> {
 ///   • N agents share one V(s) — consistent baseline for all.
 ///   • The critic is updated once per round with all agents' data pooled.
 ///   • No Arc/Mutex needed — everything is single-threaded by design.
-pub struct FlappyGradientAgent<B: AutodiffBackend> {
-    pub flappy: FlappyNet<B>,
-    pub optimizer: OptimizerAdaptor<Adam, FlappyNet<B>, B>,
-    pub device: B::Device,
-    pub state: AgentState,
-    pub stats: AgentStats,
+#[wasm_bindgen]
+pub struct FlappyGradientAgent {
+    pub(crate) flappy: FlappyNet,
+    pub(crate) optimizer: OptimizerAdaptor<Adam, FlappyNet, MyAutodiffBackend>,
+    pub(crate) device: Device<MyAutodiffBackend>,
+    pub(crate) state: AgentState,
+    pub(crate) stats: AgentStats,
 }
 
-impl<B: AutodiffBackend> FlappyGradientAgent<B> {
-    pub fn new(device: B::Device) -> Self {
+#[wasm_bindgen]
+impl FlappyGradientAgent {
+    #[wasm_bindgen(constructor)]
+    pub fn new() -> Self {
+        let device = Default::default();
         Self {
             flappy: FlappyNet::new(&device),
             optimizer: get_optimizer(),
@@ -137,7 +147,7 @@ impl<B: AutodiffBackend> FlappyGradientAgent<B> {
     ///   • flat_states  — row-major f32, len n*8  (to be pooled)
     ///   • flat_returns — f32, len n              (to be pooled)
     ///   • n            — number of steps
-    pub fn finish_episode(&mut self, critic: &Critic<B>) -> (f32, Vec<f32>, Vec<f32>, usize) {
+    pub fn finish_episode(&mut self, critic: &Critic) -> (f32, Vec<f32>, Vec<f32>, usize) {
         let n = self.state.episode.len();
         if n == 0 {
             return (0.0, vec![], vec![], 0);
@@ -186,7 +196,8 @@ impl<B: AutodiffBackend> FlappyGradientAgent<B> {
 
         // ── e. Build tensors for actor update ─────────────────────────────
         let states =
-            Tensor::<B, 1>::from_floats(flat_states.as_slice(), &self.device).reshape([n, 8]);
+            Tensor::<MyAutodiffBackend, 1>::from_floats(flat_states.as_slice(), &self.device)
+                .reshape([n, 8]);
 
         // ── f. Actor update ────────────────────────────────────────────────
         let actor_loss = self.update_actor(&advantages, states, n);
@@ -199,7 +210,12 @@ impl<B: AutodiffBackend> FlappyGradientAgent<B> {
 
     // ── private ────────────────────────────────────────────────────────────
 
-    fn update_actor(&mut self, advantages: &[f32], states: Tensor<B, 2>, n: usize) -> f32 {
+    fn update_actor(
+        &mut self,
+        advantages: &[f32],
+        states: Tensor<MyAutodiffBackend, 2>,
+        n: usize,
+    ) -> f32 {
         let action_idx: Vec<i64> = self.state.episode.iter().map(|s| s.action as i64).collect();
 
         let log_probs = burn::tensor::activation::log_softmax(self.flappy.forward(states, true), 1);
@@ -214,10 +230,12 @@ impl<B: AutodiffBackend> FlappyGradientAgent<B> {
             })
             .collect();
         let mask =
-            Tensor::<B, 1>::from_floats(action_mask.as_slice(), &self.device).reshape([n, 2]);
+            Tensor::<MyAutodiffBackend, 1>::from_floats(action_mask.as_slice(), &self.device)
+                .reshape([n, 2]);
         let selected_log_probs = (log_probs.clone() * mask).sum_dim(1); // [n, 1]
 
-        let adv_t = Tensor::<B, 1>::from_floats(advantages, &self.device).reshape([n, 1]);
+        let adv_t =
+            Tensor::<MyAutodiffBackend, 1>::from_floats(advantages, &self.device).reshape([n, 1]);
         let entropy = (probs * log_probs).sum_dim(1).mean().neg();
 
         let loss = (selected_log_probs * adv_t).mean().neg() - entropy.mul_scalar(0.01f32);
@@ -233,12 +251,13 @@ impl<B: AutodiffBackend> FlappyGradientAgent<B> {
         loss_scalar
     }
 
-    fn state_to_tensor(&self) -> Tensor<B, 2> {
+    fn state_to_tensor(&self) -> Tensor<MyAutodiffBackend, 2> {
         let s = self.state.current_gamestate.unwrap();
-        Tensor::<B, 1>::from_floats(s.to_array().as_slice(), &self.device).reshape([1, 8])
+        Tensor::<MyAutodiffBackend, 1>::from_floats(s.to_array().as_slice(), &self.device)
+            .reshape([1, 8])
     }
 
-    pub fn perturb_weights(&mut self, scale: f32) -> FlappyNet<B> {
+    pub fn perturb_weights(&mut self, scale: f32) -> FlappyNet {
         let mut mapper = PerturbMapper {
             scale,
             device: self.device.clone(),
@@ -247,19 +266,22 @@ impl<B: AutodiffBackend> FlappyGradientAgent<B> {
     }
 }
 
-pub fn get_optimizer<B: AutodiffBackend>() -> OptimizerAdaptor<Adam, FlappyNet<B>, B> {
+pub fn get_optimizer() -> OptimizerAdaptor<Adam, FlappyNet, MyAutodiffBackend> {
     AdamConfig::new().with_epsilon(OPTIMIZER_EPSILON).init()
 }
 
-struct PerturbMapper<B: Backend> {
+struct PerturbMapper {
     scale: f32,
-    device: B::Device,
+    device: Device<MyAutodiffBackend>,
 }
 
-impl<B: Backend> ModuleMapper<B> for PerturbMapper<B> {
-    fn map_float<const D: usize>(&mut self, tensor: Param<Tensor<B, D>>) -> Param<Tensor<B, D>> {
+impl ModuleMapper<MyAutodiffBackend> for PerturbMapper {
+    fn map_float<const D: usize>(
+        &mut self,
+        tensor: Param<Tensor<MyAutodiffBackend, D>>,
+    ) -> Param<Tensor<MyAutodiffBackend, D>> {
         let shape = tensor.val().shape();
-        let noise = Tensor::<B, D>::random(
+        let noise = Tensor::<MyAutodiffBackend, D>::random(
             shape,
             Distribution::Normal(0.0, self.scale as f64),
             &self.device,

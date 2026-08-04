@@ -11,6 +11,8 @@ burn = { version = "0.21", features = ["autodiff", "wgpu", "cubecl"], default-fe
 rand = { version = "0.10.1", default-features = false, features = ["std", "std_rng", "thread_rng"] }
 getrandom = { version = "0.3", features = ["wasm_js"] }
 uuid = { version = "1.23.2", features = ["js"] }
+wasm-bindgen-futures = "0.4"
+wasm-bindgen = "0.2.126"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 getrandom = { version = "0.4", features = ["wasm_js"] }
