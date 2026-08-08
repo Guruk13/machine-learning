@@ -1,3 +1,4 @@
+use burn::cubecl::device;
 use burn::nn::DropoutConfig;
 use burn::tensor::ElementConversion;
 use burn::{
@@ -9,18 +10,19 @@ use burn::{
 };
 
 use super::agent_utils::{Action, AgentDefault, AgentState, AgentStats, EpisodeStep};
-use super::critic::Critic;
 use super::pruner::normalised_entropy;
 use super::OPTIMIZER_EPSILON;
 use crate::MyAutodiffBackend;
+use burn::backend::wgpu::WgpuDevice;
 use burn::tensor::Device;
 use wasm_bindgen::prelude::*;
 // ─────────────────────────────────────────────
-// ACTOR (POLICY) NETWORK
+// POLICY NETWORK
 // ─────────────────────────────────────────────
 #[derive(Module, Debug, Clone)]
+#[wasm_bindgen]
 pub struct FlappyNet {
-    linear1: Linear<MyAutodiffBackend>, // 5 → 16
+    linear1: Linear<MyAutodiffBackend>, // 8 → 16
     linear2: Linear<MyAutodiffBackend>, // 16 → 2
     activation: Relu,
     dropout: Dropout,
@@ -41,7 +43,7 @@ impl FlappyNet {
     pub fn forward(
         &self,
         x: Tensor<MyAutodiffBackend, 2>,
-        training: bool,
+        _training: bool,
     ) -> Tensor<MyAutodiffBackend, 2> {
         let x = self.linear1.forward(x);
         let x = self.activation.forward(x);
@@ -50,19 +52,21 @@ impl FlappyNet {
 }
 
 // ─────────────────────────────────────────────
-// AGENT
+// AGENT — plain REINFORCE, no critic
 // ─────────────────────────────────────────────
-/// Each agent owns only its *actor* (FlappyNet + Adam).
-/// The critic lives outside, in the population / game-loop struct,
-/// and is passed in by `&mut` reference only when needed.
+/// Dead simple policy-gradient agent.
 ///
-///   Population owns:  Vec<FlappyGradientAgent>  +  Critic
-///   Per-agent:        FlappyNet, its optimizer, episode buffer, stats
+/// Each agent owns just its policy net + optimizer + episode buffer.
+/// There is no value network, no baseline queries, no pooling between
+/// agents — every agent learns entirely from its own episode returns.
 ///
-/// This means:
-///   • N agents share one V(s) — consistent baseline for all.
-///   • The critic is updated once per round with all agents' data pooled.
-///   • No Arc/Mutex needed — everything is single-threaded by design.
+/// Update rule (REINFORCE with a "free" baseline):
+///   1. Play an episode, recording (state, action, reward).
+///   2. Compute discounted returns G_t.
+///   3. Normalise G_t across the episode (mean 0, std 1) — this acts
+///      as a cheap, no-cost baseline, replacing the critic.
+///   4. Loss = −mean( log π(a_t|s_t) · G_t ) − β·H[π]
+///   5. Backprop, step Adam. Done.
 #[wasm_bindgen]
 pub struct FlappyGradientAgent {
     pub(crate) flappy: FlappyNet,
@@ -76,11 +80,11 @@ pub struct FlappyGradientAgent {
 impl FlappyGradientAgent {
     #[wasm_bindgen(constructor)]
     pub fn new() -> Self {
-        let device = Default::default();
+        let device = WgpuDevice::default();
         Self {
-            flappy: FlappyNet::new(&device),
+            flappy: FlappyNet::new(&device.clone),
+            device: device,
             optimizer: get_optimizer(),
-            device,
             state: AgentState::new(),
             stats: AgentStats::new(None),
         }
@@ -123,34 +127,21 @@ impl FlappyGradientAgent {
             action,
             reward,
         });
+        self.stats.total_score += reward;
     }
 
-    // ── A2C episode update ─────────────────────────────────────────────────
+    // ── REINFORCE episode update ───────────────────────────────────────────
 
     /// Call when the bird dies.
     ///
-    /// Responsibilities
-    /// ─────────────────
-    /// 1. Compute discounted returns G_t from the episode buffer.
-    /// 2. Query the *shared* critic for V(s_t) → advantages.
-    /// 3. Update the actor with ∇ log π · A − β·H.
-    /// 4. Return (flat_states, flat_returns, n) so the caller can pool
-    ///    this agent's data with others for a single critic update.
+    /// No critic involved: discounted returns are normalised in-place
+    /// and used directly as the policy-gradient signal.
     ///
-    /// The critic is NOT updated here — the caller does that once after
-    /// collecting data from ALL agents (see `Critic::update_batch`).
-    ///
-    /// Returns
-    /// ───────
-    /// `(actor_loss, flat_states, flat_returns, n)`
-    ///   • actor_loss   — scalar for logging
-    ///   • flat_states  — row-major f32, len n*8  (to be pooled)
-    ///   • flat_returns — f32, len n              (to be pooled)
-    ///   • n            — number of steps
-    pub fn finish_episode(&mut self, critic: &Critic) -> (f32, Vec<f32>, Vec<f32>, usize) {
+    /// Returns the scalar loss (for logging).
+    pub fn finish_episode(&mut self) -> f32 {
         let n = self.state.episode.len();
         if n == 0 {
-            return (0.0, vec![], vec![], 0);
+            return 0.0;
         }
 
         // ── a. Discounted returns G_t ──────────────────────────────────────
@@ -161,7 +152,13 @@ impl FlappyGradientAgent {
             returns[t] = running;
         }
 
-        // ── b. Flat state batch for this episode ───────────────────────────
+        // ── b. Normalise returns (mean 0, std 1) — acts as a free baseline ──
+        let mean = returns.iter().sum::<f32>() / n as f32;
+        let std =
+            (returns.iter().map(|r| (r - mean).powi(2)).sum::<f32>() / n as f32).sqrt() + 1e-8;
+        let normalised: Vec<f32> = returns.iter().map(|r| (r - mean) / std).collect();
+
+        // ── c. Flat state batch for this episode ────────────────────────────
         let flat_states: Vec<f32> = self
             .state
             .episode
@@ -169,50 +166,24 @@ impl FlappyGradientAgent {
             .flat_map(|s| s.state.to_array())
             .collect();
 
-        // ── c. Query shared critic → V(s_t) ───────────────────────────────
-        //   Returns plain f32 — no grad graph, safe to use immediately.
-        let state_values = critic.values_of(&flat_states, n);
-
-        // ── d. Advantages A_t = G_t − V(s_t), normalised ──────────────────
-        let advantages_raw: Vec<f32> = returns
-            .iter()
-            .zip(state_values.iter())
-            .map(|(g, v)| g - v)
-            .collect();
-
-        let adv_mean = advantages_raw.iter().sum::<f32>() / n as f32;
-        let adv_std = (advantages_raw
-            .iter()
-            .map(|a| (a - adv_mean).powi(2))
-            .sum::<f32>()
-            / n as f32)
-            .sqrt()
-            + 1e-8;
-
-        let advantages: Vec<f32> = advantages_raw
-            .iter()
-            .map(|a| (a - adv_mean) / adv_std)
-            .collect();
-
-        // ── e. Build tensors for actor update ─────────────────────────────
         let states =
             Tensor::<MyAutodiffBackend, 1>::from_floats(flat_states.as_slice(), &self.device)
                 .reshape([n, 8]);
 
-        // ── f. Actor update ────────────────────────────────────────────────
-        let actor_loss = self.update_actor(&advantages, states, n);
+        // ── d. Policy update ──────────────────────────────────────────────
+        let loss = self.update_policy(&normalised, states, n);
 
-        // ── g. Clear episode buffer ────────────────────────────────────────
+        // ── e. Clear episode buffer ──────────────────────────────────────
+        self.state.episode.clear();
 
-        // Return raw episode data so the caller can pool it for the critic.
-        (actor_loss, flat_states, returns, n)
+        loss
     }
 
     // ── private ────────────────────────────────────────────────────────────
 
-    fn update_actor(
+    fn update_policy(
         &mut self,
-        advantages: &[f32],
+        returns: &[f32],
         states: Tensor<MyAutodiffBackend, 2>,
         n: usize,
     ) -> f32 {
@@ -234,15 +205,16 @@ impl FlappyGradientAgent {
                 .reshape([n, 2]);
         let selected_log_probs = (log_probs.clone() * mask).sum_dim(1); // [n, 1]
 
-        let adv_t =
-            Tensor::<MyAutodiffBackend, 1>::from_floats(advantages, &self.device).reshape([n, 1]);
+        let returns_t =
+            Tensor::<MyAutodiffBackend, 1>::from_floats(returns, &self.device).reshape([n, 1]);
         let entropy = (probs * log_probs).sum_dim(1).mean().neg();
 
-        let loss = (selected_log_probs * adv_t).mean().neg() - entropy.mul_scalar(0.01f32);
+        // Loss = −mean( log π(a|s) · G ) − β·H[π]
+        let loss = (selected_log_probs * returns_t).mean().neg() - entropy.mul_scalar(0.01f32);
 
         let loss_scalar: f32 = loss.clone().into_scalar().elem::<f32>();
         let grads = loss.backward();
-        let grads = GradientsParams::from_grads(grads, &self.flappy);
+        let grads = GradientsParams::from_grads::<MyAutodiffBackend, _>(grads, &self.flappy);
         self.flappy = self.optimizer.step(
             AgentDefault::default().learning_rate,
             self.flappy.clone(),

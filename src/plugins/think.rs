@@ -1,3 +1,5 @@
+use std::process::exit;
+
 use super::pipes::*;
 use crate::ml::agent_utils::Action;
 use crate::ml::agent_utils::{GameStateFeatures, RewardPrizes};
@@ -187,15 +189,34 @@ pub fn run_forwards_and_optims(
     mut live_inventory: ResMut<BirdInventory>,
 ) {
     //run the forward function
-    am_ressource.agent_manager.agents_over();
 
-    //grade general behavior
-    am_ressource.agent_manager.update_stats(&registry.0);
-    am_ressource.agent_manager.prune_agents();
+    let best_idx: u32;
+    if let Some((key, _agent)) = am_ressource
+        .agent_manager
+        .inner
+        .iter()
+        .max_by(|(_, a), (_, b)| {
+            a.stats
+                .total_score
+                .partial_cmp(&b.stats.total_score)
+                .unwrap()
+        })
+    {
+        best_idx = *key;
+    } else {
+        best_idx = *am_ressource.agent_manager.inner.keys().next().unwrap();
+    }
+    am_ressource
+        .agent_manager
+        .inner
+        .iter_mut()
+        .filter(|(key, agent)| **key == best_idx)
+        .map(|(_, agent)| agent.flappy = am_ressource.agent_manager.inner[&best_idx].flappy.bi);
     for bird in &registry.0 {
         //in case a bird died , rebuild the over time
         am_ressource.agent_manager.update_metrics(*bird);
     }
+
     live_inventory.0 = registry.0.clone();
     registry.0.clear();
 }

@@ -1,6 +1,6 @@
 use super::pruner::PruningConfig;
 use bevy::prelude::{Component, Reflect};
-
+use wasm_bindgen::prelude::*;
 #[derive(Debug, Clone)]
 pub struct EpisodeStep {
     pub state: GameStateFeatures,
@@ -48,40 +48,6 @@ impl AgentStats {
             total_episodes: total_episodes.unwrap_or(0),
         }
     }
-
-    /// Update EMAs after an episode.
-    ///
-    /// * `raw_entropy` – normalised entropy ∈ [0, 1] measured over the episode
-    /// * `episode_return` – sum of undiscounted rewards for the episode
-    pub fn update(&mut self, episode: Vec<EpisodeStep>, cfg: &PruningConfig) {
-        //warn!("{:?}", self.episodes);
-        let episode_return: f32 = episode.iter().fold(0.0, |acc, x| acc + x.reward);
-        self.total_score = episode_return;
-        // Score EMA
-        //EMA initialization bias correction
-        if self.episodes == 0 {
-            self.score_ema = episode_return;
-        } else {
-            self.score_ema =
-                cfg.score_alpha * episode_return + (1.0 - cfg.score_alpha) * self.score_ema;
-        }
-
-        // Violation streaks
-        let entropy_ok =
-            self.entropy_ema >= cfg.entropy_floor && self.entropy_ema <= cfg.entropy_ceiling;
-        if entropy_ok {
-            self.entropy_violation_streak = 0;
-        } else {
-            self.entropy_violation_streak += 1;
-        }
-
-        let score_ok = self.score_ema >= cfg.score_floor;
-        if score_ok {
-            self.score_violation_streak = 0;
-        } else {
-            self.score_violation_streak += 1;
-        }
-    }
 }
 
 #[derive(Reflect, Component, Debug, Clone, Copy, Default)]
@@ -112,6 +78,7 @@ impl GameStateFeatures {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[wasm_bindgen]
 pub enum Action {
     DoNothing = 0,
     Jump = 1,
