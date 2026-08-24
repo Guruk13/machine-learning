@@ -13,9 +13,9 @@ use flappy_bird::{ml::agent_utils::GameStateFeatures, *};
 
 use crate::player::*;
 
-use crate::player::Pipe;
-
 use crate::ml::multiagent::AgentManager;
+use crate::player::Pipe;
+use crate::staticdevice::set_global_device;
 use burn::tensor::Device;
 use flappy_bird::AMRessource;
 use flappy_bird::BrainPlugin;
@@ -31,11 +31,12 @@ async fn async_main() {
         Default::default(),
     )
     .await;
+    set_global_device(device.clone());
 
     App::new()
         .init_resource::<Score>()
-        .insert_non_send_resource(AMRessource::<MyAutodiffBackend> {
-            agent_manager: AgentManager::new(device),
+        .insert_non_send_resource(AMRessource {
+            agent_manager: AgentManager::new(),
         })
         .insert_resource(BirdInventory(vec![]))
         .configure_sets(

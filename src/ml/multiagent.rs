@@ -1,25 +1,21 @@
 use super::agent_utils::GameStateFeatures;
 use super::model::FlappyGradientAgent;
 //use bevy::ecs::error::warn;
-use burn::tensor::backend::AutodiffBackend;
 use std::collections::HashMap;
 
 use crate::ml::agent_utils::AgentState;
 
 //@todo make mod agentutils to prevent bad usage
 //mod agent_utils;
-pub struct AgentManager<B: AutodiffBackend> {
+pub struct AgentManager {
     pub inner: HashMap<u32, FlappyGradientAgent>,
-    device: B::Device,
 }
 
 //"If you want to guarantee this is only ever used with the Wgpu backend, you can add a where clause"
-impl<B: AutodiffBackend> AgentManager<B> {
-    pub fn new(device: B::Device) -> AgentManager<B> {
-
+impl AgentManager {
+    pub fn new() -> AgentManager {
         Self {
             inner: HashMap::new(),
-            device: ,
         }
     }
 
@@ -27,12 +23,11 @@ impl<B: AutodiffBackend> AgentManager<B> {
         &mut self,
         key: u32,
         game_state: GameStateFeatures,
-    ) -> &mut FlappyGradientAgent<B> {
-        let device = self.device.clone();
+    ) -> &mut FlappyGradientAgent {
         let agent = self
             .inner
             .entry(key)
-            .or_insert_with(|| FlappyGradientAgent::new(device));
+            .or_insert_with(|| FlappyGradientAgent::new());
         agent.state.set_state_features(Some(game_state));
         agent
     }

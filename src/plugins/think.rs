@@ -42,7 +42,7 @@ fn think(
 
     pipe_tops: Query<(&GlobalTransform, &Aabb), With<PipeTop>>,
     pipe_bottoms: Query<(&GlobalTransform, &Aabb), With<PipeBottom>>,
-    mut am_ressource: NonSendMut<AMRessource<MyAutodiffBackend>>,
+    mut am_ressource: NonSendMut<AMRessource>,
     mut registry: ResMut<DeadBirdRegistry>,
 ) {
     let all_birds: Vec<_> = birds.iter().collect();
@@ -185,7 +185,7 @@ fn think(
 }
 pub fn run_forwards_and_optims(
     mut registry: ResMut<DeadBirdRegistry>,
-    mut am_ressource: NonSendMut<AMRessource<MyAutodiffBackend>>,
+    mut am_ressource: NonSendMut<AMRessource>,
     mut live_inventory: ResMut<BirdInventory>,
 ) {
     //run the forward function
@@ -206,15 +206,12 @@ pub fn run_forwards_and_optims(
     } else {
         best_idx = *am_ressource.agent_manager.inner.keys().next().unwrap();
     }
-    am_ressource
-        .agent_manager
-        .inner
-        .iter_mut()
-        .filter(|(key, agent)| **key == best_idx)
-        .map(|(_, agent)| agent.flappy = am_ressource.agent_manager.inner[&best_idx].flappy.bi);
-    for bird in &registry.0 {
-        //in case a bird died , rebuild the over time
-        am_ressource.agent_manager.update_metrics(*bird);
+    let best_model = am_ressource.agent_manager.inner[&best_idx].flappy.clone();
+
+    for (key, agent) in am_ressource.agent_manager.inner.iter_mut() {
+        if *key != best_idx {
+            agent.flappy = best_model.clone();
+        }
     }
 
     live_inventory.0 = registry.0.clone();

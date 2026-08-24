@@ -1,3 +1,4 @@
+use crate::staticdevice::get_global_device;
 use burn::cubecl::device;
 use burn::nn::DropoutConfig;
 use burn::tensor::ElementConversion;
@@ -29,12 +30,13 @@ pub struct FlappyNet {
 }
 
 impl FlappyNet {
-    pub fn new(device: &Device<MyAutodiffBackend>) -> Self {
+    pub fn new() -> Self {
+        let device = get_global_device();
         Self {
             activation: Relu::new(),
             dropout: DropoutConfig::new(0.2).init(),
-            linear1: LinearConfig::new(8, 16).init(device),
-            linear2: LinearConfig::new(16, 2).init(device),
+            linear1: LinearConfig::new(8, 16).init(&device),
+            linear2: LinearConfig::new(16, 2).init(&device),
         }
     }
 
@@ -80,14 +82,17 @@ pub struct FlappyGradientAgent {
 impl FlappyGradientAgent {
     #[wasm_bindgen(constructor)]
     pub fn new() -> Self {
-        let device = WgpuDevice::default();
+        let device = get_global_device();
         Self {
-            flappy: FlappyNet::new(&device.clone),
-            device: device,
+            flappy: FlappyNet::new(),
+            device: device.clone(),
             optimizer: get_optimizer(),
             state: AgentState::new(),
             stats: AgentStats::new(None),
         }
+    }
+    pub fn set_model(&mut self, net: FlappyNet) {
+        self.flappy = net;
     }
 
     // ── inference ──────────────────────────────────────────────────────────
