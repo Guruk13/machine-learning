@@ -28,7 +28,7 @@ impl Plugin for BrainPlugin {
             (
                 ApplyDeferred,
                 think,
-                run_forwards_and_optims.run_if(no_birds_in_main_system),
+                //run_forwards_and_optims.run_if(no_birds_in_main_system),
             )
                 .chain()
                 .in_set(GameSets::AI),
@@ -162,14 +162,8 @@ fn think(
         // warn!("{:?}", reward);
         //
 
-        let pool = ComputeTaskPool::get();
-        let results: Vec<Action> = pool.scope(|s| {
-            s.spawn(async move {
-                agent.select_action().await // moves agent_ref, NOT agent
-            });
-        });
         let agent = am_ressource.agent_manager.bind_agent(bird.uid, state);
-        let action = results.pop().expect("No action");
+        let action = agent.select_action();
         match action {
             Action::DoNothing => {}
             Action::Jump => {
@@ -196,41 +190,41 @@ fn think(
             registry.0.push(bird.1.uid);
         }
     }
-    pub fn run_forwards_and_optims(
-        mut registry: ResMut<DeadBirdRegistry>,
-        mut am_ressource: NonSendMut<AMRessource>,
-        mut live_inventory: ResMut<BirdInventory>,
-    ) {
-        //run the forward function
+}
 
-        let best_idx: u32;
-        if let Some((key, _agent)) =
-            am_ressource
-                .agent_manager
-                .inner
-                .iter()
-                .max_by(|(_, a), (_, b)| {
-                    a.stats
-                        .total_score
-                        .partial_cmp(&b.stats.total_score)
-                        .unwrap()
-                })
-        {
-            best_idx = *key;
-        } else {
-            best_idx = *am_ressource.agent_manager.inner.keys().next().unwrap();
-        }
-        let best_model = am_ressource.agent_manager.inner[&best_idx].flappy.clone();
+pub fn run_forwards_and_optims(
+    mut registry: ResMut<DeadBirdRegistry>,
+    mut am_ressource: NonSendMut<AMRessource>,
+    mut live_inventory: ResMut<BirdInventory>,
+) {
+    //run the forward function
 
-        for (key, agent) in am_ressource.agent_manager.inner.iter_mut() {
-            if *key != best_idx {
-                agent.flappy = best_model.clone();
-            }
-        }
-
-        live_inventory.0 = registry.0.clone();
-        registry.0.clear();
+    let best_idx: u32;
+    if let Some((key, _agent)) = am_ressource
+        .agent_manager
+        .inner
+        .iter()
+        .max_by(|(_, a), (_, b)| {
+            a.stats
+                .total_score
+                .partial_cmp(&b.stats.total_score)
+                .unwrap()
+        })
+    {
+        best_idx = *key;
+    } else {
+        best_idx = *am_ressource.agent_manager.inner.keys().next().unwrap();
     }
+    let best_model = am_ressource.agent_manager.inner[&best_idx].flappy.clone();
+
+    for (key, agent) in am_ressource.agent_manager.inner.iter_mut() {
+        if *key != best_idx {
+            agent.flappy = best_model.clone();
+        }
+    }
+
+    live_inventory.0 = registry.0.clone();
+    registry.0.clear();
 }
 pub fn no_birds_in_main_system(
     alive: Query<&Bird>,
