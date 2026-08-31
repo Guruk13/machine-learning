@@ -1,7 +1,7 @@
 use crate::staticdevice::get_global_device;
-use burn::cubecl::device;
+
 use burn::nn::DropoutConfig;
-use burn::tensor::ElementConversion;
+
 use burn::{
     module::{Module, ModuleMapper, Param, ParamId},
     nn::{Dropout, Linear, LinearConfig, Relu},
@@ -11,10 +11,10 @@ use burn::{
 };
 
 use super::agent_utils::{Action, AgentDefault, AgentState, AgentStats, EpisodeStep};
-use super::pruner::normalised_entropy;
+
 use super::OPTIMIZER_EPSILON;
 use crate::MyAutodiffBackend;
-use burn::backend::wgpu::WgpuDevice;
+
 use burn::tensor::Device;
 use wasm_bindgen::prelude::*;
 // ─────────────────────────────────────────────
@@ -97,25 +97,19 @@ impl FlappyGradientAgent {
 
     // ── inference ──────────────────────────────────────────────────────────
 
-    pub fn select_action(&mut self) -> Action {
+    /// Async variant: doesn't block the calling thread waiting for the
+    /// backend to resolve the scalar (important on wgpu, where a sync
+    /// `into_scalar()` would otherwise force a device stall).
+    pub async fn select_action(&mut self) -> Action {
         let input = self.state_to_tensor();
         let probs = self.flappy.forward(input, false);
-        let data = probs.clone().to_data();
-        let raw: Vec<f32> = data.iter::<f32>().collect();
 
-        let entropy_sum: f32 = raw
-            .chunks(2)
-            .map(|row| {
-                let e = normalised_entropy(row);
-                if !e.is_finite() {
-                    println!("bad entropy row: {:?}", row);
-                }
-                e
-            })
-            .sum();
-        self.stats.entropy_sum += entropy_sum;
+        let p_jump: f32 = probs
+            .slice([0..1, 1..2])
+            .into_scalar_async()
+            .await
+            .expect("failed to read p_jump scalar from tensor");
 
-        let p_jump: f32 = probs.slice([0..1, 1..2]).into_scalar().elem::<f32>();
         if rand::random::<f32>() < p_jump {
             Action::Jump
         } else {
@@ -143,7 +137,7 @@ impl FlappyGradientAgent {
     /// and used directly as the policy-gradient signal.
     ///
     /// Returns the scalar loss (for logging).
-    pub fn finish_episode(&mut self) -> f32 {
+    pub async fn finish_episode(&mut self) -> f32 {
         let n = self.state.episode.len();
         if n == 0 {
             return 0.0;
@@ -176,7 +170,7 @@ impl FlappyGradientAgent {
                 .reshape([n, 8]);
 
         // ── d. Policy update ──────────────────────────────────────────────
-        let loss = self.update_policy(&normalised, states, n);
+        let loss = self.update_policy(&normalised, states, n).await;
 
         // ── e. Clear episode buffer ──────────────────────────────────────
         self.state.episode.clear();
@@ -186,7 +180,7 @@ impl FlappyGradientAgent {
 
     // ── private ────────────────────────────────────────────────────────────
 
-    fn update_policy(
+    async fn update_policy(
         &mut self,
         returns: &[f32],
         states: Tensor<MyAutodiffBackend, 2>,
@@ -217,7 +211,12 @@ impl FlappyGradientAgent {
         // Loss = −mean( log π(a|s) · G ) − β·H[π]
         let loss = (selected_log_probs * returns_t).mean().neg() - entropy.mul_scalar(0.01f32);
 
-        let loss_scalar: f32 = loss.clone().into_scalar().elem::<f32>();
+        let loss_scalar: f32 = loss
+            .clone()
+            .into_scalar_async()
+            .await
+            .expect("failed to read loss scalar from tensor");
+
         let grads = loss.backward();
         let grads = GradientsParams::from_grads::<MyAutodiffBackend, _>(grads, &self.flappy);
         self.flappy = self.optimizer.step(
@@ -233,36 +232,8 @@ impl FlappyGradientAgent {
         Tensor::<MyAutodiffBackend, 1>::from_floats(s.to_array().as_slice(), &self.device)
             .reshape([1, 8])
     }
-
-    pub fn perturb_weights(&mut self, scale: f32) -> FlappyNet {
-        let mut mapper = PerturbMapper {
-            scale,
-            device: self.device.clone(),
-        };
-        self.flappy.clone().map(&mut mapper)
-    }
 }
 
 pub fn get_optimizer() -> OptimizerAdaptor<Adam, FlappyNet, MyAutodiffBackend> {
     AdamConfig::new().with_epsilon(OPTIMIZER_EPSILON).init()
-}
-
-struct PerturbMapper {
-    scale: f32,
-    device: Device<MyAutodiffBackend>,
-}
-
-impl ModuleMapper<MyAutodiffBackend> for PerturbMapper {
-    fn map_float<const D: usize>(
-        &mut self,
-        tensor: Param<Tensor<MyAutodiffBackend, D>>,
-    ) -> Param<Tensor<MyAutodiffBackend, D>> {
-        let shape = tensor.val().shape();
-        let noise = Tensor::<MyAutodiffBackend, D>::random(
-            shape,
-            Distribution::Normal(0.0, self.scale as f64),
-            &self.device,
-        );
-        tensor.map(|t| t + noise)
-    }
 }

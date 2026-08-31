@@ -1,7 +1,9 @@
+use crate::ml::agent_utils::Action;
 use crate::CANVAS_SIZE;
 use crate::PLAYER_SIZE;
 use bevy::prelude::*;
 
+use std::collections::VecDeque;
 #[derive(Component)]
 pub struct Gravity(pub f32);
 
@@ -32,9 +34,10 @@ pub enum GameSets {
     AI,      // think, bind agent
 }
 
-#[derive(Component, Debug, Reflect)]
+#[derive(Component, Debug)]
 #[require(Gravity(1000.), Velocity)]
 pub struct Bird {
+    pub pending: PendingActions,
     pub uid: u32,
     pub dead: bool,
     pub score: u32,
@@ -59,6 +62,7 @@ impl Bird {
                 dead: false,
                 score: 0,
                 pipe_death: false,
+                pending: PendingActions::default(),
             },
             Sprite {
                 custom_size: Some(Vec2::splat(PLAYER_SIZE)),
@@ -99,3 +103,6 @@ pub struct PipeBottom;
 pub struct PointsGate {
     pub has_scored: Vec<u32>,
 }
+
+#[derive(Component, Default, Debug)]
+pub struct PendingActions(pub VecDeque<Action>);

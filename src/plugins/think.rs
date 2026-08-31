@@ -3,18 +3,20 @@ use std::process::exit;
 use super::pipes::*;
 use crate::ml::agent_utils::Action;
 use crate::ml::agent_utils::{GameStateFeatures, RewardPrizes};
+use crate::ml::model::FlappyGradientAgent;
 use crate::ml::multiagent::AgentManager;
+use crate::player::PendingActions;
 use crate::player::{Bird, BirdInventory, BirdJump, GameSets, Player, Velocity};
 use crate::player::{PipeBottom, PipeTop};
 use crate::AMRessource;
+use crate::MyAutodiffBackend;
 use bevy::camera::primitives::Aabb;
 use bevy::prelude::*;
-
-use crate::MyAutodiffBackend;
-
+use bevy::tasks::futures_lite::future;
 use burn::tensor::Device;
 pub struct BrainPlugin;
-
+use bevy::prelude::*;
+use bevy::tasks::ComputeTaskPool;
 // to be able to run updates on every agent without cutting some agent's experience , store the birds here , then respawn once optimizations are through
 #[derive(Resource, Default)]
 pub struct DeadBirdRegistry(pub Vec<u32>);
@@ -38,7 +40,10 @@ impl Plugin for BrainPlugin {
 //Think Bird.  what will you have after 500 years ?
 fn think(
     mut commands: Commands,
-    birds: Query<(Entity, &Bird, &Transform, &Velocity, &Aabb), (With<Bird>, Without<Player>)>,
+    birds: Query<
+        (Entity, &Bird, &Transform, &Velocity, &Aabb, &PendingActions),
+        (With<Bird>, Without<Player>),
+    >,
 
     pipe_tops: Query<(&GlobalTransform, &Aabb), With<PipeTop>>,
     pipe_bottoms: Query<(&GlobalTransform, &Aabb), With<PipeBottom>>,
@@ -48,7 +53,7 @@ fn think(
     let all_birds: Vec<_> = birds.iter().collect();
 
     //warn!( "Look mom , no .... : {:?}",query.iter().count);
-    for (entity, bird, transform, velocity, bird_aabb) in &all_birds {
+    for (entity, bird, transform, velocity, bird_aabb, pending) in &all_birds {
         let calculated_velocity = Vec2::new(PIPE_SPEED, velocity.0).to_angle();
         let bird_x = transform.translation.x;
         let bird_left_edge = bird_x + bird_aabb.half_extents.x;
@@ -137,10 +142,6 @@ fn think(
         } else {
             RewardPrizes::default().alive * (agent.state.score as f32).powi(2).max(1.0)
         };
-        //prevent association of jump = reward policy
-        if action == Action::Jump {
-            reward += RewardPrizes::default().jump_cost
-        }
 
         /*         let mut reward: f32 = if bird.dead && !bird.pipe_death {
             //dying soon is shameful
@@ -160,62 +161,76 @@ fn think(
         reward = reward - gap_centre_penalty;
         // warn!("{:?}", reward);
         //
-        agent.record_step(action.clone(), reward);
+
+        let pool = ComputeTaskPool::get();
+        let results: Vec<Action> = pool.scope(|s| {
+            s.spawn(async move {
+                agent.select_action().await // moves agent_ref, NOT agent
+            });
+        });
+        let agent = am_ressource.agent_manager.bind_agent(bird.uid, state);
+        let action = results.pop().expect("No action");
         match action {
-            Action::DoNothing => { /*  not because you pelican means you pelishould */ }
+            Action::DoNothing => {}
             Action::Jump => {
                 if !bird.dead {
                     commands.trigger(BirdJump(*entity));
                 }
             }
         }
-    }
 
-    //Gamestate has been processed , process bird's agent  stats
-    let birds_dead: Vec<_> = all_birds
-        .iter()
-        .filter(|(_, bird, _, _, _)| bird.dead == true)
-        .collect();
+        if action == Action::Jump {
+            reward += RewardPrizes::default().jump_cost;
+        }
 
-    // warn!("{:?}", birds_dead.len());
+        agent.record_step(action, reward); // agent: never
+                                           //Gamestate has been processed , process bird's agent  stats
+        let birds_dead: Vec<_> = all_birds
+            .iter()
+            .filter(|(_, bird, _, _, _, _)| bird.dead == true)
+            .collect();
 
-    for bird in &birds_dead {
-        registry.0.push(bird.1.uid);
-    }
-}
-pub fn run_forwards_and_optims(
-    mut registry: ResMut<DeadBirdRegistry>,
-    mut am_ressource: NonSendMut<AMRessource>,
-    mut live_inventory: ResMut<BirdInventory>,
-) {
-    //run the forward function
+        // warn!("{:?}", birds_dead.len());
 
-    let best_idx: u32;
-    if let Some((key, _agent)) = am_ressource
-        .agent_manager
-        .inner
-        .iter()
-        .max_by(|(_, a), (_, b)| {
-            a.stats
-                .total_score
-                .partial_cmp(&b.stats.total_score)
-                .unwrap()
-        })
-    {
-        best_idx = *key;
-    } else {
-        best_idx = *am_ressource.agent_manager.inner.keys().next().unwrap();
-    }
-    let best_model = am_ressource.agent_manager.inner[&best_idx].flappy.clone();
-
-    for (key, agent) in am_ressource.agent_manager.inner.iter_mut() {
-        if *key != best_idx {
-            agent.flappy = best_model.clone();
+        for bird in &birds_dead {
+            registry.0.push(bird.1.uid);
         }
     }
+    pub fn run_forwards_and_optims(
+        mut registry: ResMut<DeadBirdRegistry>,
+        mut am_ressource: NonSendMut<AMRessource>,
+        mut live_inventory: ResMut<BirdInventory>,
+    ) {
+        //run the forward function
 
-    live_inventory.0 = registry.0.clone();
-    registry.0.clear();
+        let best_idx: u32;
+        if let Some((key, _agent)) =
+            am_ressource
+                .agent_manager
+                .inner
+                .iter()
+                .max_by(|(_, a), (_, b)| {
+                    a.stats
+                        .total_score
+                        .partial_cmp(&b.stats.total_score)
+                        .unwrap()
+                })
+        {
+            best_idx = *key;
+        } else {
+            best_idx = *am_ressource.agent_manager.inner.keys().next().unwrap();
+        }
+        let best_model = am_ressource.agent_manager.inner[&best_idx].flappy.clone();
+
+        for (key, agent) in am_ressource.agent_manager.inner.iter_mut() {
+            if *key != best_idx {
+                agent.flappy = best_model.clone();
+            }
+        }
+
+        live_inventory.0 = registry.0.clone();
+        registry.0.clear();
+    }
 }
 pub fn no_birds_in_main_system(
     alive: Query<&Bird>,
