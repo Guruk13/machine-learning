@@ -181,10 +181,10 @@ fn think(
         for bird in &birds_dead {
             registry.0.insert(bird.1.uid);
         }
-        #[cfg(target_arch = "wasm32")]
-        web_sys::console::log_1(&format!("{:?}", "purgatory").into());
-        #[cfg(target_arch = "wasm32")]
-        web_sys::console::log_1(&format!("{:?}", &birds_dead).into());
+        //    #[cfg(target_arch = "wasm32")]
+        //    web_sys::console::log_1(&format!("{:?}", "purgatory").into());
+        //    #[cfg(target_arch = "wasm32")]
+        //web_sys::console::log_1(&format!("{:?}", &birds_dead).into());
     }
 }
 //this function is end of the line for async works : it hands off major tensor tasks before
@@ -198,18 +198,18 @@ pub fn run_forwards_and_optims(
     //    fires once a background replacement has actually finished.
     {
         let mut slot = am_ressource.replacement.borrow_mut();
-        #[cfg(target_arch = "wasm32")]
-        web_sys::console::log_1(&format!("{:?}", "slot").into());
-        #[cfg(target_arch = "wasm32")]
-        web_sys::console::log_1(&format!("{:?}", &*slot).into());
-        #[cfg(target_arch = "wasm32")]
-        web_sys::console::log_1(&format!("{:?}", "live").into());
-        #[cfg(target_arch = "wasm32")]
-        web_sys::console::log_1(&format!("{:?}", &live_inventory.0).into());
-        #[cfg(target_arch = "wasm32")]
-        web_sys::console::log_1(&format!("{:?}", "registry").into());
-        #[cfg(target_arch = "wasm32")]
-        web_sys::console::log_1(&format!("{:?}", &registry.0).into());
+        //        #[cfg(target_arch = "wasm32")]
+        //        web_sys::console::log_1(&format!("{:?}", "slot").into());
+        //        #[cfg(target_arch = "wasm32")]
+        //        web_sys::console::log_1(&format!("{:?}", &*slot).into());
+        //        #[cfg(target_arch = "wasm32")]
+        //        web_sys::console::log_1(&format!("{:?}", "live").into());
+        //        #[cfg(target_arch = "wasm32")]
+        //        web_sys::console::log_1(&format!("{:?}", &live_inventory.0).into());
+        //        #[cfg(target_arch = "wasm32")]
+        //        web_sys::console::log_1(&format!("{:?}", "registry").into());
+        //        #[cfg(target_arch = "wasm32")]
+        //        web_sys::console::log_1(&format!("{:?}", &registry.0).into());
         if let ReplacementState::Ready(finalized) = &*slot {
             live_inventory.0 = finalized.clone();
             registry.0.clear();
