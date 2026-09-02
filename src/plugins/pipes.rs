@@ -1,7 +1,6 @@
 use crate::player::{Pipe, PipeBottom, PipeTop, PointsGate};
 use bevy::camera::primitives::Aabb;
-use bevy::{image::ImageLoaderSettings, prelude::*, time::common_conditions::on_timer};
-use std::time::Duration;
+use bevy::{image::ImageLoaderSettings, prelude::*};
 
 pub const CANVAS_SIZE: Vec2 = Vec2::new(480., 270.);
 

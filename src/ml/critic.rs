@@ -1,9 +1,9 @@
 use burn::{
     module::Module,
     nn::{Dropout, DropoutConfig, Linear, LinearConfig, Relu},
-    optim::{Adam, AdamConfig, GradientsParams, Optimizer, adaptor::OptimizerAdaptor},
+    optim::{adaptor::OptimizerAdaptor, Adam, AdamConfig, GradientsParams, Optimizer},
     prelude::Backend,
-    tensor::{Tensor, backend::AutodiffBackend},
+    tensor::{backend::AutodiffBackend, Tensor},
 };
 
 use super::OPTIMIZER_EPSILON;

@@ -188,7 +188,7 @@ fn think(
 
 pub fn run_forwards_and_optims(
     mut registry: ResMut<DeadBirdRegistry>,
-    mut am_ressource: NonSendMut<AMRessource>,
+    am_ressource: NonSendMut<AMRessource>,
     mut live_inventory: ResMut<BirdInventory>,
 ) {
     // ── 0. Catch a precedent future, if one landed since we last ran.
@@ -260,7 +260,7 @@ pub fn no_birds_in_main_system(
     alive: Query<&Bird>,
     live_inventory: Res<BirdInventory>,
 
-    mut commands: Commands,
+    _commands: Commands,
 ) -> bool {
     alive.is_empty() && live_inventory.0.is_empty()
 }

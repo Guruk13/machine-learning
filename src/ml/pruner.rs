@@ -26,12 +26,6 @@
 //    of the best-scoring survivor, giving it a fresh optimiser state while
 //    keeping useful learned weights.
 
-use burn::tensor::backend::AutodiffBackend;
-
-use super::agent_utils::AgentStats;
-use super::model::FlappyGradientAgent;
-use std::collections::HashMap;
-
 // ─────────────────────────────────────────────────────────────────────────────
 // 1.  ENTROPY HELPERS
 // ─────────────────────────────────────────────────────────────────────────────

@@ -1,4 +1,3 @@
-use super::pruner::PruningConfig;
 use bevy::prelude::{Component, Reflect};
 use wasm_bindgen::prelude::*;
 #[derive(Debug, Clone)]
