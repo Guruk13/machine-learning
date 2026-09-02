@@ -1,6 +1,7 @@
 use crate::player::{Pipe, PipeBottom, PipeTop, PointsGate};
 use bevy::camera::primitives::Aabb;
-use bevy::{image::ImageLoaderSettings, prelude::*};
+use bevy::{image::ImageLoaderSettings, prelude::*, time::common_conditions::on_timer};
+use std::time::Duration;
 
 pub const CANVAS_SIZE: Vec2 = Vec2::new(480., 270.);
 
@@ -18,20 +19,22 @@ impl Plugin for PipePlugin {
             (
                 despawn_pipes,
                 shift_pipes_to_the_left,
-                //spawn_pipes.run_if(on_timer(Duration::from_millis(1000))),
+                spawn_pipes.run_if(on_timer(Duration::from_millis(1000))),
             ),
         );
     }
 }
 
 fn spawn_pipes(mut commands: Commands, asset_server: Res<AssetServer>, time: Res<Time>) {
-    let image =
-        asset_server.load_with_settings("pipe.png", |settings: &mut ImageLoaderSettings| {
+    let image = asset_server
+        .load_builder()
+        .with_settings(|settings: &mut ImageLoaderSettings| {
             settings
                 .sampler
                 .get_or_init_descriptor()
                 .set_filter(bevy::image::ImageFilterMode::Nearest);
-        });
+        })
+        .load("pipe.png");
 
     let image_mode = SpriteImageMode::Sliced(TextureSlicer {
         border: BorderRect::axes(8., 19.),

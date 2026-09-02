@@ -47,9 +47,6 @@ fn think(
 ) {
     let all_birds: Vec<_> = birds.iter().collect();
     for (entity, bird, transform, velocity, bird_aabb) in &all_birds {
-        #[cfg(target_arch = "wasm32")]
-        web_sys::console::log_1(&format!("{:?}", "dont min right ? ").into());
-
         let calculated_velocity = Vec2::new(PIPE_SPEED, velocity.0).to_angle();
         let bird_x = transform.translation.x;
         let bird_left_edge = bird_x + bird_aabb.half_extents.x;
@@ -127,7 +124,6 @@ fn think(
         //compute reward
         let mut reward: f32 = if bird.dead {
             //dying soon is shameful
-
             if bird.pipe_death {
                 RewardPrizes::default().pipe_death
             } else {
@@ -144,18 +140,17 @@ fn think(
             RewardPrizes::default().alive * (1 + bird.score) as f32
         }; */
         if bird.score > agent.state.score {
-            reward +=
-                RewardPrizes::default().pipe_cleared * (agent.state.score as f32).powi(5).max(1.0);
+            reward += RewardPrizes::default().pipe_cleared;
             agent.state.score = bird.score;
         }
 
-        let gap_centre = (state.next_pipe_top_y + state.next_pipe_bottom_y) / 2.0;
-        let gap_centre_penalty = (state.bird_y - gap_centre).abs() * 0.001;
+        let (lo, hi) = (
+            state.next_pipe_top_y.min(state.next_pipe_bottom_y),
+            state.next_pipe_top_y.max(state.next_pipe_bottom_y),
+        );
+        let in_gap = state.bird_y > lo && state.bird_y < hi;
         // Small bonus for staying near the centre of the gap
-        reward = reward - gap_centre_penalty;
-        // warn!("{:?}", reward);
-        //
-
+        reward = reward + if in_gap { 0.01 } else { 0.0 };
         let agent = am_ressource.agent_manager.bind_agent(bird.uid, state);
         let action = agent.select_action();
 
@@ -171,6 +166,8 @@ fn think(
         if action == Action::Jump {
             reward += RewardPrizes::default().jump_cost;
         }
+
+        agent.record_step(action, reward);
 
         //Gamestate has been processed , process bird's agent  stats
         let birds_dead: Vec<_> = all_birds
