@@ -1,22 +1,20 @@
-use std::process::exit;
-
 use super::pipes::*;
-use crate::ml::agent_utils::Action;
-use crate::ml::agent_utils::{GameStateFeatures, RewardPrizes};
-use crate::ml::model::FlappyGradientAgent;
-use crate::ml::multiagent::AgentManager;
-use crate::player::PendingActions;
-use crate::player::{Bird, BirdInventory, BirdJump, GameSets, Player, Velocity};
-use crate::player::{PipeBottom, PipeTop};
-use crate::AMRessource;
-use crate::MyAutodiffBackend;
+use crate::ml::agent_utils::{Action, GameStateFeatures, RewardPrizes};
+use crate::ml::model::FlappyNet;
+use crate::player::{
+    Bird, BirdInventory, BirdJump, GameSets, PipeBottom, PipeTop, Player, Velocity,
+};
+use crate::RegistrySnapshot;
+use crate::{AMRessource, ReplacementState};
+use wasm_bindgen_futures::spawn_local;
+
 use bevy::camera::primitives::Aabb;
 use bevy::prelude::*;
-use bevy::tasks::futures_lite::future;
-use burn::tensor::Device;
 pub struct BrainPlugin;
-use bevy::prelude::*;
-use bevy::tasks::ComputeTaskPool;
+
+use std::cell::RefCell;
+use std::rc::Rc;
+
 // to be able to run updates on every agent without cutting some agent's experience , store the birds here , then respawn once optimizations are through
 #[derive(Resource, Default)]
 pub struct DeadBirdRegistry(pub Vec<u32>);
@@ -28,7 +26,7 @@ impl Plugin for BrainPlugin {
             (
                 ApplyDeferred,
                 think,
-                //run_forwards_and_optims.run_if(no_birds_in_main_system),
+                run_forwards_and_optims.run_if(no_birds_in_main_system),
             )
                 .chain()
                 .in_set(GameSets::AI),
@@ -40,10 +38,7 @@ impl Plugin for BrainPlugin {
 //Think Bird.  what will you have after 500 years ?
 fn think(
     mut commands: Commands,
-    birds: Query<
-        (Entity, &Bird, &Transform, &Velocity, &Aabb, &PendingActions),
-        (With<Bird>, Without<Player>),
-    >,
+    birds: Query<(Entity, &Bird, &Transform, &Velocity, &Aabb), (With<Bird>, Without<Player>)>,
 
     pipe_tops: Query<(&GlobalTransform, &Aabb), With<PipeTop>>,
     pipe_bottoms: Query<(&GlobalTransform, &Aabb), With<PipeBottom>>,
@@ -51,9 +46,10 @@ fn think(
     mut registry: ResMut<DeadBirdRegistry>,
 ) {
     let all_birds: Vec<_> = birds.iter().collect();
+    for (entity, bird, transform, velocity, bird_aabb) in &all_birds {
+        #[cfg(target_arch = "wasm32")]
+        web_sys::console::log_1(&format!("{:?}", "dont min right ? ").into());
 
-    //warn!( "Look mom , no .... : {:?}",query.iter().count);
-    for (entity, bird, transform, velocity, bird_aabb, pending) in &all_birds {
         let calculated_velocity = Vec2::new(PIPE_SPEED, velocity.0).to_angle();
         let bird_x = transform.translation.x;
         let bird_left_edge = bird_x + bird_aabb.half_extents.x;
@@ -128,8 +124,6 @@ fn think(
         let agent = am_ressource.agent_manager.bind_agent(bird.uid, state);
         //forward
 
-        let action = agent.select_action();
-
         //compute reward
         let mut reward: f32 = if bird.dead {
             //dying soon is shameful
@@ -164,6 +158,7 @@ fn think(
 
         let agent = am_ressource.agent_manager.bind_agent(bird.uid, state);
         let action = agent.select_action();
+
         match action {
             Action::DoNothing => {}
             Action::Jump => {
@@ -177,11 +172,10 @@ fn think(
             reward += RewardPrizes::default().jump_cost;
         }
 
-        agent.record_step(action, reward); // agent: never
-                                           //Gamestate has been processed , process bird's agent  stats
+        //Gamestate has been processed , process bird's agent  stats
         let birds_dead: Vec<_> = all_birds
             .iter()
-            .filter(|(_, bird, _, _, _, _)| bird.dead == true)
+            .filter(|(_, bird, _, _, _)| bird.dead == true)
             .collect();
 
         // warn!("{:?}", birds_dead.len());
@@ -197,8 +191,24 @@ pub fn run_forwards_and_optims(
     mut am_ressource: NonSendMut<AMRessource>,
     mut live_inventory: ResMut<BirdInventory>,
 ) {
-    //run the forward function
+    // ── 0. Catch a precedent future, if one landed since we last ran.
+    //    This is the ONLY place the registries are touched, and it only
+    //    fires once a background replacement has actually finished.
+    {
+        let mut slot = am_ressource.replacement.borrow_mut();
+        if let ReplacementState::Ready(finalized) = &*slot {
+            live_inventory.0 = finalized.clone();
+            registry.0.clear();
+            *slot = ReplacementState::Idle;
+        }
+    }
 
+    // ── 1. Don't start a new replacement cycle while one is in flight.
+    if !matches!(*am_ressource.replacement.borrow(), ReplacementState::Idle) {
+        return;
+    }
+
+    // ── 2. Pick the best agent (cheap, CPU-only — stays sync) ──────────
     let best_idx: u32;
     if let Some((key, _agent)) = am_ressource
         .agent_manager
@@ -215,16 +225,36 @@ pub fn run_forwards_and_optims(
     } else {
         best_idx = *am_ressource.agent_manager.inner.keys().next().unwrap();
     }
+
+    // Cloning the Rc handle itself (cheap, just a refcount bump) — the
+    // actual weights get cloned once, inside the background task, per
+    // recipient, matching your original semantics.
     let best_model = am_ressource.agent_manager.inner[&best_idx].flappy.clone();
 
-    for (key, agent) in am_ressource.agent_manager.inner.iter_mut() {
-        if *key != best_idx {
-            agent.flappy = best_model.clone();
-        }
-    }
+    let other_handles: Vec<Rc<RefCell<FlappyNet>>> = am_ressource
+        .agent_manager
+        .inner
+        .iter()
+        .filter(|(key, _)| **key != best_idx)
+        .map(|(_, agent)| agent.flappy.clone())
+        .collect();
 
-    live_inventory.0 = registry.0.clone();
-    registry.0.clear();
+    // `registry`/`live_inventory` (the ResMuts) don't live long enough —
+    // snapshot the owned data the background task needs to hand back.
+    let registry_snapshot: RegistrySnapshot = registry.0.clone();
+
+    let replacement = am_ressource.replacement.clone();
+    *replacement.borrow_mut() = ReplacementState::InFlight;
+
+    spawn_local(async move {
+        // ── operate the replacement ─────────────────────────────────────
+        for handle in other_handles.iter() {
+            *handle.borrow_mut() = best_model.borrow().clone();
+        }
+
+        // ── stage the finalize; step 0 on a later frame will pick it up ──
+        *replacement.borrow_mut() = ReplacementState::Ready(registry_snapshot);
+    });
 }
 pub fn no_birds_in_main_system(
     alive: Query<&Bird>,

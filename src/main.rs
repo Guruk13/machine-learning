@@ -11,14 +11,15 @@ use bevy::{
 use bevy::{color::palettes::tailwind::RED_400, image::ImageLoaderSettings};
 use flappy_bird::{ml::agent_utils::GameStateFeatures, *};
 
-use crate::player::*;
-
 use crate::ml::multiagent::AgentManager;
 use crate::player::Pipe;
+use crate::player::*;
 use crate::staticdevice::set_global_device;
 use burn::tensor::Device;
 use flappy_bird::AMRessource;
 use flappy_bird::BrainPlugin;
+use std::cell::RefCell;
+use std::rc::Rc;
 
 fn main() {
     // sync main — just kicks off the async work and doesn't wait for it
@@ -37,6 +38,8 @@ async fn async_main() {
         .init_resource::<Score>()
         .insert_non_send_resource(AMRessource {
             agent_manager: AgentManager::new(),
+
+            replacement: Rc::new(RefCell::new(ReplacementState::Idle)),
         })
         .insert_resource(BirdInventory(vec![]))
         .configure_sets(

@@ -1,13 +1,11 @@
 use crate::staticdevice::get_global_device;
 
 use burn::nn::DropoutConfig;
-
 use burn::{
-    module::{Module, ModuleMapper, Param, ParamId},
+    module::Module,
     nn::{Dropout, Linear, LinearConfig, Relu},
     optim::{adaptor::OptimizerAdaptor, Adam, AdamConfig, GradientsParams, Optimizer},
-    prelude::Backend,
-    tensor::{activation::softmax, backend::AutodiffBackend, Distribution, Tensor},
+    tensor::{activation::softmax, Tensor},
 };
 
 use super::agent_utils::{Action, AgentDefault, AgentState, AgentStats, EpisodeStep};
@@ -128,6 +126,8 @@ impl FlappyGradientAgent {
     pub fn select_action(&mut self) -> Action {
         // Pick up a result that finished since the last call.
         if let Some(action) = self.pending_action.borrow_mut().take() {
+            #[cfg(target_arch = "wasm32")]
+            web_sys::console::log_1(&format!("{:?}", action).into());
             self.last_action = action;
         }
 
