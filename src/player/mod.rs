@@ -3,6 +3,7 @@ use crate::CANVAS_SIZE;
 use crate::PLAYER_SIZE;
 use bevy::prelude::*;
 
+use std::collections::HashSet;
 use std::collections::VecDeque;
 #[derive(Component)]
 pub struct Gravity(pub f32);
@@ -84,7 +85,7 @@ impl Bird {
 }
 
 #[derive(Resource, Default, Reflect)]
-pub struct BirdInventory(pub Vec<u32>);
+pub struct BirdInventory(pub HashSet<u32>);
 
 #[derive(Debug, Component, Clone, Copy, PartialEq, Eq)]
 pub enum Flag {

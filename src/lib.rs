@@ -3,6 +3,7 @@ use burn::backend::Autodiff;
 
 use crate::ml::multiagent::AgentManager;
 use std::cell::RefCell;
+use std::collections::HashSet;
 use std::rc::Rc;
 pub mod ml;
 pub mod player;
@@ -11,7 +12,7 @@ pub mod staticdevice;
 
 pub use plugins::*;
 
-type RegistrySnapshot = Vec<u32>;
+type RegistrySnapshot = HashSet<u32>;
 
 pub struct AMRessource {
     pub agent_manager: AgentManager,

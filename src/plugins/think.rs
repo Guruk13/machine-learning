@@ -13,11 +13,12 @@ use bevy::prelude::*;
 pub struct BrainPlugin;
 
 use std::cell::RefCell;
+use std::collections::HashSet;
 use std::rc::Rc;
 
 // to be able to run updates on every agent without cutting some agent's experience , store the birds here , then respawn once optimizations are through
 #[derive(Resource, Default)]
-pub struct DeadBirdRegistry(pub Vec<u32>);
+pub struct DeadBirdRegistry(pub HashSet<u32>);
 
 impl Plugin for BrainPlugin {
     fn build(&self, app: &mut App) {
@@ -31,7 +32,7 @@ impl Plugin for BrainPlugin {
                 .chain()
                 .in_set(GameSets::AI),
         )
-        .insert_resource(DeadBirdRegistry(vec![]));
+        .insert_resource(DeadBirdRegistry(HashSet::new()));
     }
 }
 
@@ -178,7 +179,7 @@ fn think(
         // warn!("{:?}", birds_dead.len());
 
         for bird in &birds_dead {
-            registry.0.push(bird.1.uid);
+            registry.0.insert(bird.1.uid);
         }
         #[cfg(target_arch = "wasm32")]
         web_sys::console::log_1(&format!("{:?}", "purgatory").into());
@@ -204,11 +205,11 @@ pub fn run_forwards_and_optims(
         #[cfg(target_arch = "wasm32")]
         web_sys::console::log_1(&format!("{:?}", "live").into());
         #[cfg(target_arch = "wasm32")]
-        web_sys::console::log_1(&format!("{:?}", &*live_inventory.0).into());
+        web_sys::console::log_1(&format!("{:?}", &live_inventory.0).into());
         #[cfg(target_arch = "wasm32")]
         web_sys::console::log_1(&format!("{:?}", "registry").into());
         #[cfg(target_arch = "wasm32")]
-        web_sys::console::log_1(&format!("{:?}", &*registry.0).into());
+        web_sys::console::log_1(&format!("{:?}", &registry.0).into());
         if let ReplacementState::Ready(finalized) = &*slot {
             live_inventory.0 = finalized.clone();
             registry.0.clear();
@@ -271,7 +272,7 @@ pub fn run_forwards_and_optims(
     });
 }
 pub fn no_birds_in_main_system(
-    alive: Query<(&Bird), Changed<Bird>>,
+    alive: Query<&Bird>,
     live_inventory: Res<BirdInventory>,
 
     _commands: Commands,

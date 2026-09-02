@@ -18,8 +18,8 @@ use crate::staticdevice::set_global_device;
 use burn::tensor::Device;
 use flappy_bird::AMRessource;
 use flappy_bird::BrainPlugin;
-use std::cell::RefCell;
 use std::rc::Rc;
+use std::{cell::RefCell, collections::HashSet};
 
 fn main() {
     // sync main — just kicks off the async work and doesn't wait for it
@@ -41,7 +41,7 @@ async fn async_main() {
 
             replacement: Rc::new(RefCell::new(ReplacementState::Idle)),
         })
-        .insert_resource(BirdInventory(vec![]))
+        .insert_resource(BirdInventory(HashSet::new()))
         .configure_sets(
             FixedUpdate,
             (
@@ -386,7 +386,7 @@ fn bird_respawn(
     }
 
     if !has_intersected {
-        for value in birdinv.0.drain(..) {
+        for value in birdinv.0.drain() {
             commands.spawn(Bird::new(&asset_server, false, value));
             //warn!("spawn {:?}", value)
         }
@@ -405,7 +405,7 @@ fn on_bird_jump(event: On<BirdJump>, mut velocities: Query<&mut Velocity, With<B
 
 //debug helper
 fn set_time_scale(mut time: ResMut<Time<Virtual>>) {
-    time.set_relative_speed(0.1); // 2x faster
+    time.set_relative_speed(0.5); // 2x faster
                                   // time.set_relative_speed(0.5); // half speed
                                   // time.set_relative_speed(0.0); // pause
 }
