@@ -180,9 +180,13 @@ fn think(
         for bird in &birds_dead {
             registry.0.push(bird.1.uid);
         }
+        #[cfg(target_arch = "wasm32")]
+        web_sys::console::log_1(&format!("{:?}", "purgatory").into());
+        #[cfg(target_arch = "wasm32")]
+        web_sys::console::log_1(&format!("{:?}", &birds_dead).into());
     }
 }
-
+//this function is end of the line for async works : it hands off major tensor tasks before
 pub fn run_forwards_and_optims(
     mut registry: ResMut<DeadBirdRegistry>,
     am_ressource: NonSendMut<AMRessource>,
@@ -193,10 +197,24 @@ pub fn run_forwards_and_optims(
     //    fires once a background replacement has actually finished.
     {
         let mut slot = am_ressource.replacement.borrow_mut();
+        #[cfg(target_arch = "wasm32")]
+        web_sys::console::log_1(&format!("{:?}", "slot").into());
+        #[cfg(target_arch = "wasm32")]
+        web_sys::console::log_1(&format!("{:?}", &*slot).into());
+        #[cfg(target_arch = "wasm32")]
+        web_sys::console::log_1(&format!("{:?}", "live").into());
+        #[cfg(target_arch = "wasm32")]
+        web_sys::console::log_1(&format!("{:?}", &*live_inventory.0).into());
+        #[cfg(target_arch = "wasm32")]
+        web_sys::console::log_1(&format!("{:?}", "registry").into());
+        #[cfg(target_arch = "wasm32")]
+        web_sys::console::log_1(&format!("{:?}", &*registry.0).into());
         if let ReplacementState::Ready(finalized) = &*slot {
             live_inventory.0 = finalized.clone();
             registry.0.clear();
             *slot = ReplacementState::Idle;
+
+            return;
         }
     }
 
@@ -222,7 +240,6 @@ pub fn run_forwards_and_optims(
     } else {
         best_idx = *am_ressource.agent_manager.inner.keys().next().unwrap();
     }
-
     // Cloning the Rc handle itself (cheap, just a refcount bump) — the
     // actual weights get cloned once, inside the background task, per
     // recipient, matching your original semantics.
@@ -254,7 +271,7 @@ pub fn run_forwards_and_optims(
     });
 }
 pub fn no_birds_in_main_system(
-    alive: Query<&Bird>,
+    alive: Query<(&Bird), Changed<Bird>>,
     live_inventory: Res<BirdInventory>,
 
     _commands: Commands,

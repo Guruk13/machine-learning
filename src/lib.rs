@@ -21,6 +21,7 @@ pub struct AMRessource {
 }
 
 // ── shared state, single source of truth (see previous message) ─────────
+#[derive(Debug, Copy, Clone)]
 pub enum ReplacementState<T> {
     Idle,
     InFlight,

@@ -78,7 +78,7 @@ impl FlappyNet {
 #[wasm_bindgen]
 pub struct FlappyGradientAgent {
     pub(crate) flappy: Rc<RefCell<FlappyNet>>,
-    pub(crate) optimizer: Rc<RefCell<OptimizerAdaptor<Adam, FlappyNet, MyAutodiffBackend>>>,
+    pub(crate) optimizer: OptimizerAdaptor<Adam, FlappyNet, MyAutodiffBackend>,
     pub(crate) device: Device<MyAutodiffBackend>,
     pub(crate) state: AgentState,
     pub(crate) stats: AgentStats,
@@ -87,10 +87,6 @@ pub struct FlappyGradientAgent {
     pending_action: Rc<RefCell<Option<Action>>>,
     action_inflight: Rc<RefCell<bool>>,
     last_action: Action,
-
-    // background-training bookkeeping
-    pending_loss: Rc<RefCell<Option<f32>>>,
-    episode_inflight: Rc<RefCell<bool>>,
 }
 
 #[wasm_bindgen]
@@ -101,14 +97,12 @@ impl FlappyGradientAgent {
         Self {
             flappy: Rc::new(RefCell::new(FlappyNet::new())),
             device: device.clone(),
-            optimizer: Rc::new(RefCell::new(get_optimizer())),
+            optimizer: get_optimizer(),
             state: AgentState::new(),
             stats: AgentStats::new(None),
             pending_action: Rc::new(RefCell::new(None)),
             action_inflight: Rc::new(RefCell::new(false)),
             last_action: Action::DoNothing,
-            pending_loss: Rc::new(RefCell::new(None)),
-            episode_inflight: Rc::new(RefCell::new(false)),
         }
     }
 
@@ -126,8 +120,8 @@ impl FlappyGradientAgent {
     pub fn select_action(&mut self) -> Action {
         // Pick up a result that finished since the last call.
         if let Some(action) = self.pending_action.borrow_mut().take() {
-            #[cfg(target_arch = "wasm32")]
-            web_sys::console::log_1(&format!("{:?}", action).into());
+            //#[cfg(target_arch = "wasm32")]
+            //web_sys::console::log_1(&format!("{:?}", action).into());
             self.last_action = action;
         }
 
@@ -177,32 +171,23 @@ impl FlappyGradientAgent {
 
     // ── REINFORCE episode update ───────────────────────────────────────────
 
-    /// Sync, non-blocking. Call when the bird dies.
+    /// Call when the bird dies.
     ///
-    /// Discounted-return computation is cheap CPU work and stays fully
-    /// synchronous. The tensor/backward/optimizer-step work is handed off
-    /// to a background task via `spawn_local`, guarded so a second episode
-    /// can't start a gradient step before the first one has landed.
+    /// Computes discounted returns, normalises them, runs the forward pass,
+    /// computes the REINFORCE loss, backprops, and steps the optimizer — all
+    /// in one function. Uses burn's async tensor API (`into_scalar_async`)
+    /// so it's WASM-safe; the caller is responsible for awaiting it (e.g.
+    /// from an async-exported wasm_bindgen method, or from within a task if
+    /// you add one later).
     ///
-    /// Returns the loss of whichever background update most recently
-    /// finished (i.e. usually the *previous* episode's loss, not this
-    /// one's) — treat it as a logging signal, not a synchronous result.
-    pub fn finish_episode(&mut self) -> f32 {
-        let ready_loss = self.pending_loss.borrow_mut().take();
-
+    /// Returns the scalar loss for this episode.
+    pub async fn update_policy(&mut self) -> f32 {
         let n = self.state.episode.len();
         if n == 0 {
-            return ready_loss.unwrap_or(0.0);
+            return 0.0;
         }
 
-        if *self.episode_inflight.borrow() {
-            // A previous gradient step hasn't landed yet. Rather than race
-            // two updates against the same weights, drop this trajectory.
-            self.state.episode.clear();
-            return ready_loss.unwrap_or(0.0);
-        }
-
-        // ── a. Discounted returns G_t ────────────────────────────────────
+        // ── a. Discounted returns G_t ──────────────────────────────────────
         let mut returns = vec![0.0f32; n];
         let mut running = 0.0f32;
         for t in (0..n).rev() {
@@ -210,56 +195,75 @@ impl FlappyGradientAgent {
             returns[t] = running;
         }
 
-        // ── b. Normalise returns (mean 0, std 1) — free baseline ──────────
+        // ── b. Normalise returns (mean 0, std 1) — acts as a free baseline ──
         let mean = returns.iter().sum::<f32>() / n as f32;
         let std =
             (returns.iter().map(|r| (r - mean).powi(2)).sum::<f32>() / n as f32).sqrt() + 1e-8;
         let normalised: Vec<f32> = returns.iter().map(|r| (r - mean) / std).collect();
 
-        // ── c. Flat, owned episode data (safe to move into 'static task) ──
+        // ── c. Flat state batch for this episode ────────────────────────────
         let flat_states: Vec<f32> = self
             .state
             .episode
             .iter()
             .flat_map(|s| s.state.to_array())
             .collect();
+
+        let states =
+            Tensor::<MyAutodiffBackend, 1>::from_floats(flat_states.as_slice(), &self.device)
+                .reshape([n, 8]);
+
         let action_idx: Vec<i64> = self.state.episode.iter().map(|s| s.action as i64).collect();
 
-        // ── d. Hand the update off to a background task ───────────────────
-        let flappy = self.flappy.clone();
-        let optimizer = self.optimizer.clone();
-        let device = self.device.clone();
-        let pending_loss = self.pending_loss.clone();
-        let episode_inflight = self.episode_inflight.clone();
-        let learning_rate = AgentDefault::default().learning_rate;
+        // ── d. Forward pass ───────────────────────────────────────────────
+        let log_probs =
+            burn::tensor::activation::log_softmax(self.flappy.borrow().forward(states, true), 1);
+        let probs = log_probs.clone().exp();
 
-        *episode_inflight.borrow_mut() = true;
+        // One-hot mask → gather log prob of the action taken
+        let action_mask: Vec<f32> = (0..n)
+            .flat_map(|i| {
+                let mut row = [0.0f32; 2];
+                row[action_idx[i] as usize] = 1.0;
+                row
+            })
+            .collect();
+        let mask =
+            Tensor::<MyAutodiffBackend, 1>::from_floats(action_mask.as_slice(), &self.device)
+                .reshape([n, 2]);
+        let selected_log_probs = (log_probs.clone() * mask).sum_dim(1); // [n, 1]
 
-        spawn_local(async move {
-            let states =
-                Tensor::<MyAutodiffBackend, 1>::from_floats(flat_states.as_slice(), &device)
-                    .reshape([n, 8]);
+        let returns_t =
+            Tensor::<MyAutodiffBackend, 1>::from_floats(normalised.as_slice(), &self.device)
+                .reshape([n, 1]);
+        let entropy = (probs * log_probs).sum_dim(1).mean().neg();
 
-            let loss = update_policy_async(
-                &flappy,
-                &optimizer,
-                &device,
-                &normalised,
-                states,
-                &action_idx,
-                n,
-                learning_rate,
-            )
-            .await;
+        // ── e. Loss = −mean( log π(a|s) · G ) − β·H[π] ──────────────────────
+        let loss = (selected_log_probs * returns_t).mean().neg() - entropy.mul_scalar(0.01f32);
 
-            *pending_loss.borrow_mut() = Some(loss);
-            *episode_inflight.borrow_mut() = false;
-        });
+        let loss_scalar: f32 = loss
+            .clone()
+            .into_scalar_async()
+            .await
+            .expect("failed to read loss scalar from tensor");
 
-        // ── e. Clear episode buffer — its data has already been copied out ─
+        // ── f. Backprop + optimizer step ────────────────────────────────────
+        let grads = loss.backward();
+        let net = self.flappy.borrow().clone();
+        let grads = GradientsParams::from_grads::<MyAutodiffBackend, _>(grads, &net);
+        // take an owned FlappyNet out (clones the net, not the Rc/RefCell)
+
+        let updated = self
+            .optimizer
+            .step(AgentDefault::default().learning_rate, net, grads);
+
+        // write the new FlappyNet back into the same cell
+        *self.flappy.borrow_mut() = updated;
+
+        // ── g. Clear episode buffer ──────────────────────────────────────
         self.state.episode.clear();
 
-        ready_loss.unwrap_or(0.0)
+        loss_scalar
     }
 
     // ── private ────────────────────────────────────────────────────────────
@@ -269,58 +273,6 @@ impl FlappyGradientAgent {
         Tensor::<MyAutodiffBackend, 1>::from_floats(s.to_array().as_slice(), &self.device)
             .reshape([1, 8])
     }
-}
-
-/// Free function (not a method) so it can be moved wholesale into a
-/// `spawn_local` future without borrowing `&mut self` across an `.await`.
-/// All GPU/tensor work — including the backward pass and the optimizer
-/// step — happens here, off the caller's synchronous stack.
-async fn update_policy_async(
-    flappy: &Rc<RefCell<FlappyNet>>,
-    optimizer: &Rc<RefCell<OptimizerAdaptor<Adam, FlappyNet, MyAutodiffBackend>>>,
-    device: &Device<MyAutodiffBackend>,
-    returns: &[f32],
-    states: Tensor<MyAutodiffBackend, 2>,
-    action_idx: &[i64],
-    n: usize,
-    learning_rate: f64,
-) -> f32 {
-    let net = flappy.borrow().clone();
-
-    let log_probs = burn::tensor::activation::log_softmax(net.forward(states, true), 1);
-    let probs = log_probs.clone().exp();
-
-    // One-hot mask → gather log prob of the action taken
-    let action_mask: Vec<f32> = (0..n)
-        .flat_map(|i| {
-            let mut row = [0.0f32; 2];
-            row[action_idx[i] as usize] = 1.0;
-            row
-        })
-        .collect();
-    let mask =
-        Tensor::<MyAutodiffBackend, 1>::from_floats(action_mask.as_slice(), device).reshape([n, 2]);
-    let selected_log_probs = (log_probs.clone() * mask).sum_dim(1); // [n, 1]
-
-    let returns_t = Tensor::<MyAutodiffBackend, 1>::from_floats(returns, device).reshape([n, 1]);
-    let entropy = (probs * log_probs).sum_dim(1).mean().neg();
-
-    // Loss = −mean( log π(a|s) · G ) − β·H[π]
-    let loss = (selected_log_probs * returns_t).mean().neg() - entropy.mul_scalar(0.01f32);
-
-    let loss_scalar: f32 = loss
-        .clone()
-        .into_scalar_async()
-        .await
-        .expect("failed to read loss scalar from tensor");
-
-    let grads = loss.backward();
-    let grads = GradientsParams::from_grads::<MyAutodiffBackend, _>(grads, &net);
-
-    let updated = optimizer.borrow_mut().step(learning_rate, net, grads);
-    *flappy.borrow_mut() = updated;
-
-    loss_scalar
 }
 
 pub fn get_optimizer() -> OptimizerAdaptor<Adam, FlappyNet, MyAutodiffBackend> {

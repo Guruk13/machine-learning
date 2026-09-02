@@ -405,7 +405,7 @@ fn on_bird_jump(event: On<BirdJump>, mut velocities: Query<&mut Velocity, With<B
 
 //debug helper
 fn set_time_scale(mut time: ResMut<Time<Virtual>>) {
-    time.set_relative_speed(0.5); // 2x faster
+    time.set_relative_speed(0.1); // 2x faster
                                   // time.set_relative_speed(0.5); // half speed
                                   // time.set_relative_speed(0.0); // pause
 }
