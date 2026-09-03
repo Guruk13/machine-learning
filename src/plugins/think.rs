@@ -119,7 +119,9 @@ fn think(
         //for debugging purposes only
         commands.entity(*entity).insert(state);
         //get an agent , sync it with Bird's pov
-        let agent = am_ressource.agent_manager.bind_agent(bird.uid, state);
+        am_ressource.agent_manager.bind_agent(bird.uid, state);
+        let mut agent = am_ressource.agent_manager.inner[&bird.uid].borrow_mut();
+
         //forward
 
         //compute reward
@@ -134,7 +136,7 @@ fn think(
             RewardPrizes::default().alive * (agent.state.score as f32).powi(2).max(1.0)
         };
 
-        /*         let mut reward: f32 = if bird.dead && !bird.pipe_death {
+        /*let mut reward: f32 = if bird.dead && !bird.pipe_death {
             //dying soon is shameful
             RewardPrizes::default().dying * -(agent.state.score as i32) as f32
         } else {
@@ -152,7 +154,6 @@ fn think(
         let in_gap = state.bird_y > lo && state.bird_y < hi;
         // Small bonus for staying near the centre of the gap
         reward = reward + if in_gap { 0.01 } else { 0.0 };
-        let agent = am_ressource.agent_manager.bind_agent(bird.uid, state);
         let action = agent.select_action();
 
         match action {
@@ -169,115 +170,126 @@ fn think(
         }
 
         agent.record_step(action, reward);
-
-        //Gamestate has been processed , process bird's agent  stats
-        let birds_dead: Vec<_> = all_birds
-            .iter()
-            .filter(|(_, bird, _, _, _)| bird.dead == true)
-            .collect();
-
-        // warn!("{:?}", birds_dead.len());
-
-        for bird in &birds_dead {
-            registry.0.insert(bird.1.uid);
-        }
-        //    #[cfg(target_arch = "wasm32")]
-        //    web_sys::console::log_1(&format!("{:?}", "purgatory").into());
-        //    #[cfg(target_arch = "wasm32")]
-        //web_sys::console::log_1(&format!("{:?}", &birds_dead).into());
     }
+    //Gamestate has been processed , process bird's agent  stats
+    let birds_dead: Vec<_> = all_birds
+        .iter()
+        .filter(|(_, bird, _, _, _)| bird.dead == true)
+        .collect();
+
+    // warn!("{:?}", birds_dead.len());
+
+    for bird in &birds_dead {
+        registry.0.insert(bird.1.uid);
+        am_ressource.agent_manager.inner[&bird.1.uid]
+            .borrow_mut()
+            .agent_finish_episode();
+    }
+    //    #[cfg(target_arch = "wasm32")]
+    //    web_sys::console::log_1(&format!("{:?}", "purgatory").into());
+    //    #[cfg(target_arch = "wasm32")]
+    //web_sys::console::log_1(&format!("{:?}", &birds_dead).into());
 }
-//this function is end of the line for async works : it hands off major tensor tasks before
+//this function is end of the line for async works : it hands off major tensor tasks to wasm worker before resuming them in another micro task loop
 pub fn run_forwards_and_optims(
     mut registry: ResMut<DeadBirdRegistry>,
     am_ressource: NonSendMut<AMRessource>,
     mut live_inventory: ResMut<BirdInventory>,
 ) {
     // ── 0. Catch a precedent future, if one landed since we last ran.
-    //    This is the ONLY place the registries are touched, and it only
-    //    fires once a background replacement has actually finished.
-    {
-        let mut slot = am_ressource.replacement.borrow_mut();
-        //        #[cfg(target_arch = "wasm32")]
-        //        web_sys::console::log_1(&format!("{:?}", "slot").into());
-        //        #[cfg(target_arch = "wasm32")]
-        //        web_sys::console::log_1(&format!("{:?}", &*slot).into());
-        //        #[cfg(target_arch = "wasm32")]
-        //        web_sys::console::log_1(&format!("{:?}", "live").into());
-        //        #[cfg(target_arch = "wasm32")]
-        //        web_sys::console::log_1(&format!("{:?}", &live_inventory.0).into());
-        //        #[cfg(target_arch = "wasm32")]
-        //        web_sys::console::log_1(&format!("{:?}", "registry").into());
-        //        #[cfg(target_arch = "wasm32")]
-        //        web_sys::console::log_1(&format!("{:?}", &registry.0).into());
-        if let ReplacementState::Ready(finalized) = &*slot {
-            live_inventory.0 = finalized.clone();
-            registry.0.clear();
-            *slot = ReplacementState::Idle;
-
-            return;
-        }
-    }
-
-    // ── 1. Don't start a new replacement cycle while one is in flight.
-    if !matches!(*am_ressource.replacement.borrow(), ReplacementState::Idle) {
+    let mut slot = am_ressource.replacement.borrow_mut();
+    if let ReplacementState::Ready(finalized) = &*slot {
+        live_inventory.0 = finalized.clone();
+        registry.0.clear();
+        *slot = ReplacementState::Idle;
         return;
     }
 
-    // ── 2. Pick the best agent (cheap, CPU-only — stays sync) ──────────
-    let best_idx: u32;
-    if let Some((key, _agent)) = am_ressource
-        .agent_manager
-        .inner
-        .iter()
-        .max_by(|(_, a), (_, b)| {
-            a.stats
-                .total_score
-                .partial_cmp(&b.stats.total_score)
-                .unwrap()
-        })
-    {
-        best_idx = *key;
-    } else {
-        best_idx = *am_ressource.agent_manager.inner.keys().next().unwrap();
-    }
-    // Cloning the Rc handle itself (cheap, just a refcount bump) — the
-    // actual weights get cloned once, inside the background task, per
-    // recipient, matching your original semantics.
-    let best_model = am_ressource.agent_manager.inner[&best_idx].flappy.clone();
-
-    let other_handles: Vec<Rc<RefCell<FlappyNet>>> = am_ressource
-        .agent_manager
-        .inner
-        .iter()
-        .filter(|(key, _)| **key != best_idx)
-        .map(|(_, agent)| agent.flappy.clone())
-        .collect();
-
-    // `registry`/`live_inventory` (the ResMuts) don't live long enough —
-    // snapshot the owned data the background task needs to hand back.
-    let registry_snapshot: RegistrySnapshot = registry.0.clone();
-
     let replacement = am_ressource.replacement.clone();
-    *replacement.borrow_mut() = ReplacementState::InFlight;
+    let current_state = am_ressource.replacement.borrow().clone();
 
-    spawn_local(async move {
-        // ── operate the replacement ─────────────────────────────────────
-        for handle in other_handles.iter() {
-            *handle.borrow_mut() = best_model.borrow().clone();
+    match current_state {
+        ReplacementState::Idle => {
+            // ── 1. Pick the best agent (cheap, CPU-only — stays sync) ──
+            let best_idx: u32 = if let Some((key, _agent)) = am_ressource
+                .agent_manager
+                .inner
+                .iter()
+                .max_by(|(_, a), (_, b)| {
+                    a.borrow_mut()
+                        .stats
+                        .total_score
+                        .partial_cmp(&b.borrow_mut().stats.total_score)
+                        .unwrap()
+                }) {
+                *key
+            } else {
+                *am_ressource.agent_manager.inner.keys().next().unwrap()
+            };
+
+            *replacement.borrow_mut() = ReplacementState::Descending(best_idx);
+
+            let agent = am_ressource.agent_manager.inner[&best_idx].clone();
+            let replacement_task = replacement.clone();
+
+            spawn_local(async move {
+                let loss: f32 = agent.borrow_mut().update_policy().await;
+
+                #[cfg(target_arch = "wasm32")]
+                web_sys::console::log_1(&format!("descend loss: {:?}", loss).into());
+                #[cfg(not(target_arch = "wasm32"))]
+                println!("descend loss: {:?}", loss);
+
+                *replacement_task.borrow_mut() = ReplacementState::Replacing(best_idx);
+            });
         }
 
-        // ── stage the finalize; step 0 on a later frame will pick it up ──
-        *replacement.borrow_mut() = ReplacementState::Ready(registry_snapshot);
-    });
+        ReplacementState::Descending(_) => {
+            // descend task already in flight — nothing to do this frame
+        }
+
+        ReplacementState::Replacing(best_idx) => {
+            let best_model = am_ressource.agent_manager.inner[&best_idx]
+                .borrow_mut()
+                .flappy
+                .clone();
+            let mut other_handles: Vec<Rc<RefCell<FlappyNet>>> = Vec::new();
+
+            for (key, agent) in am_ressource.agent_manager.inner.iter() {
+                agent.borrow_mut().agent_clear_episode();
+                if *key == best_idx {
+                    continue;
+                }
+                agent.borrow_mut().new_model_reset_stats();
+                other_handles.push(agent.borrow().flappy.clone());
+            }
+            let registry_snapshot: RegistrySnapshot = registry.0.clone();
+            let replacement_task = replacement.clone();
+
+            spawn_local(async move {
+                for handle in other_handles.iter() {
+                    *handle.borrow_mut() = best_model.borrow().clone();
+                }
+                *replacement_task.borrow_mut() = ReplacementState::Ready(registry_snapshot);
+            });
+        }
+
+        ReplacementState::Ready(_) => unreachable!("handled in step 0 above"),
+    }
 }
 pub fn no_birds_in_main_system(
     alive: Query<&Bird>,
     live_inventory: Res<BirdInventory>,
-
+    am_ressource: NonSend<AMRessource>,
     _commands: Commands,
 ) -> bool {
-    alive.is_empty() && live_inventory.0.is_empty()
+    let no_actions_in_flight = am_ressource
+        .agent_manager
+        .inner
+        .values()
+        .all(|agent| !*agent.borrow().action_inflight.borrow());
+
+    alive.is_empty() && live_inventory.0.is_empty() && no_actions_in_flight
 }
 #[derive(Component, Default, Clone, Copy)]
 pub struct PartialReward(pub f32);

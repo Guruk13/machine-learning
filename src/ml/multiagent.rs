@@ -1,17 +1,14 @@
 use super::agent_utils::GameStateFeatures;
 use super::model::FlappyGradientAgent;
-//use bevy::ecs::error::warn;
 use std::collections::HashMap;
 
-use crate::ml::agent_utils::AgentState;
+use std::cell::RefCell;
+use std::rc::Rc;
 
-//@todo make mod agentutils to prevent bad usage
-//mod agent_utils;
 pub struct AgentManager {
-    pub inner: HashMap<u32, FlappyGradientAgent>,
+    pub inner: HashMap<u32, Rc<RefCell<FlappyGradientAgent>>>,
 }
 
-//"If you want to guarantee this is only ever used with the Wgpu backend, you can add a where clause"
 impl AgentManager {
     pub fn new() -> AgentManager {
         Self {
@@ -19,40 +16,19 @@ impl AgentManager {
         }
     }
 
-    pub fn bind_agent(
-        &mut self,
-        key: u32,
-        game_state: GameStateFeatures,
-    ) -> &mut FlappyGradientAgent {
+    pub fn bind_agent(&mut self, key: u32, game_state: GameStateFeatures) {
         let agent = self
             .inner
             .entry(key)
-            .or_insert_with(|| FlappyGradientAgent::new());
-        agent.state.set_state_features(Some(game_state));
+            .or_insert_with(|| Rc::new(RefCell::new(FlappyGradientAgent::new())));
         agent
+            .borrow_mut()
+            .state
+            .set_state_features(Some(game_state));
     }
 
     pub fn unbind_agent(&mut self, key: u32) {
         //remove *should* use the drop function which is freeing the memory of WGPU's garabage collector more efficiently
         self.inner.remove(&key);
     }
-
-    pub fn update_metrics(&mut self, key: u32) {
-        match self.inner.get_mut(&key) {
-            Some(agent) => {
-                agent.state = AgentState::new();
-                agent.stats.episodes = agent.stats.episodes + 1;
-                //agent.stats.entropy_sum = 0.;
-            }
-            None => panic!("Agent '{}' not found", key),
-        }
-    }
-
-    //  match self.inner.get_mut(&key) {
-    //      Some(agent) => {
-    //          // spot entropicishes
-    //          return agent.finish_episode();
-    //      }
-    //      None => panic!("Agent '{}' not found", key),
-    //  }
 }

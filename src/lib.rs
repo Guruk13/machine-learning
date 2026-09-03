@@ -25,7 +25,8 @@ pub struct AMRessource {
 #[derive(Debug, Copy, Clone)]
 pub enum ReplacementState<T> {
     Idle,
-    InFlight,
+    Descending(u32),
+    Replacing(u32),
     Ready(T),
 }
 type MyBackend = Wgpu<f32, i32>;

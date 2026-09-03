@@ -85,7 +85,7 @@ pub struct FlappyGradientAgent {
 
     // background-inference bookkeeping
     pending_action: Rc<RefCell<Option<Action>>>,
-    action_inflight: Rc<RefCell<bool>>,
+    pub(crate) action_inflight: Rc<RefCell<bool>>,
     last_action: Action,
 }
 
@@ -108,6 +108,18 @@ impl FlappyGradientAgent {
 
     pub fn set_model(&mut self, net: FlappyNet) {
         *self.flappy.borrow_mut() = net;
+    }
+    pub fn new_model_reset_stats(&mut self) {
+        self.state = AgentState::new();
+        self.stats.episodes = 0;
+        //agent.stats.entropy_sum = 0.;
+    }
+    pub fn agent_clear_episode(&mut self) {
+        self.state = AgentState::new();
+    }
+
+    pub fn agent_finish_episode(&mut self) {
+        self.stats.episodes += 1;
     }
 
     // ── inference ──────────────────────────────────────────────────────────
