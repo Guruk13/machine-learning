@@ -153,7 +153,7 @@ fn think(
         );
         let in_gap = state.bird_y > lo && state.bird_y < hi;
         // Small bonus for staying near the centre of the gap
-        reward = reward + if in_gap { 0.01 } else { 0.0 };
+        reward = reward + if in_gap { 0.01 } else { -0.01 };
         let action = agent.select_action();
 
         match action {
@@ -196,13 +196,15 @@ pub fn run_forwards_and_optims(
     am_ressource: NonSendMut<AMRessource>,
     mut live_inventory: ResMut<BirdInventory>,
 ) {
-    // ── 0. Catch a precedent future, if one landed since we last ran.
-    let mut slot = am_ressource.replacement.borrow_mut();
-    if let ReplacementState::Ready(finalized) = &*slot {
-        live_inventory.0 = finalized.clone();
-        registry.0.clear();
-        *slot = ReplacementState::Idle;
-        return;
+    {
+        // ── 0. Catch a precedent future, if one landed since we last ran.
+        let mut slot = am_ressource.replacement.borrow_mut();
+        if let ReplacementState::Ready(finalized) = &*slot {
+            live_inventory.0 = finalized.clone();
+            registry.0.clear();
+            *slot = ReplacementState::Idle;
+            return;
+        }
     }
 
     let replacement = am_ressource.replacement.clone();
@@ -234,11 +236,8 @@ pub fn run_forwards_and_optims(
 
             spawn_local(async move {
                 let loss: f32 = agent.borrow_mut().update_policy().await;
-
                 #[cfg(target_arch = "wasm32")]
                 web_sys::console::log_1(&format!("descend loss: {:?}", loss).into());
-                #[cfg(not(target_arch = "wasm32"))]
-                println!("descend loss: {:?}", loss);
 
                 *replacement_task.borrow_mut() = ReplacementState::Replacing(best_idx);
             });
@@ -283,11 +282,28 @@ pub fn no_birds_in_main_system(
     am_ressource: NonSend<AMRessource>,
     _commands: Commands,
 ) -> bool {
-    let no_actions_in_flight = am_ressource
-        .agent_manager
-        .inner
-        .values()
-        .all(|agent| !*agent.borrow().action_inflight.borrow());
+    let mut no_actions_in_flight = true;
+
+    for (id, agent) in am_ressource.agent_manager.inner.iter() {
+        match agent.try_borrow() {
+            Ok(agent) => {
+                let inflight = *agent.action_inflight.borrow();
+                if inflight {
+                    no_actions_in_flight = false;
+                    break;
+                }
+            }
+            Err(e) => {
+                no_actions_in_flight = false;
+                #[cfg(target_arch = "wasm32")]
+                web_sys::console::log_1(
+                    &format!("failed to borrow an agent , need to wait its action to be complete.")
+                        .into(),
+                );
+                break;
+            }
+        }
+    }
 
     alive.is_empty() && live_inventory.0.is_empty() && no_actions_in_flight
 }

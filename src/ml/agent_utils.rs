@@ -149,8 +149,8 @@ pub struct AgentDefault {
 impl Default for AgentDefault {
     fn default() -> Self {
         Self {
-            gamma: 0.95,
-            learning_rate: 5e-3,
+            gamma: 0.99,
+            learning_rate: 1e-4,
         }
     }
 }
