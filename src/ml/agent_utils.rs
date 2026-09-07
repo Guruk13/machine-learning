@@ -95,12 +95,12 @@ pub struct RewardPrizes {
 impl Default for RewardPrizes {
     fn default() -> Self {
         Self {
-            dying: -10.0,
+            dying: -50.0,
             pipe_death: -1.0,
 
-            pipe_cleared: 30.,
-            alive: 1.,
-            jump_cost: 0.,
+            pipe_cleared: 2.,
+            alive: 0.1,
+            jump_cost: 0.01,
         }
     }
 }
@@ -149,7 +149,7 @@ pub struct AgentDefault {
 impl Default for AgentDefault {
     fn default() -> Self {
         Self {
-            gamma: 0.99,
+            gamma: 0.90,
             learning_rate: 1e-4,
         }
     }

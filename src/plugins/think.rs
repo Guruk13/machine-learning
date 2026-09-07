@@ -153,7 +153,12 @@ fn think(
         );
         let in_gap = state.bird_y > lo && state.bird_y < hi;
         // Small bonus for staying near the centre of the gap
-        reward = reward + if in_gap { 0.01 } else { -0.01 };
+        reward = reward
+            + if in_gap {
+                RewardPrizes::default().alive
+            } else {
+                -RewardPrizes::default().alive
+            };
         let action = agent.select_action();
 
         match action {

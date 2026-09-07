@@ -251,7 +251,7 @@ impl FlappyGradientAgent {
         let entropy = (probs * log_probs).sum_dim(1).mean().neg();
 
         // ── e. Loss = −mean( log π(a|s) · G ) − β·H[π] ──────────────────────
-        let loss = (selected_log_probs * returns_t).mean().neg() - entropy.mul_scalar(0.01f32);
+        let loss = (selected_log_probs * returns_t).mean().neg() - entropy.mul_scalar(0.3f32);
 
         let loss_scalar: f32 = loss
             .clone()

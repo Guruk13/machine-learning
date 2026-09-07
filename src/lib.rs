@@ -8,6 +8,7 @@ use std::rc::Rc;
 pub mod ml;
 pub mod player;
 pub mod plugins;
+
 pub mod staticdevice;
 
 pub use plugins::*;
