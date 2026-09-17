@@ -272,27 +272,31 @@ pub fn run_forwards_and_optims(
         }
 
         ReplacementState::Replacing(best_idx) => {
-            let inner = am_ressource.agent_manager.inner.clone();
+            let best_model = am_ressource.agent_manager.inner[&best_idx]
+                .borrow_mut()
+                .flappy
+                .clone();
+            let mut other_handles: Vec<Rc<RefCell<FlappyNet>>> = Vec::new();
+
+            for (key, agent) in am_ressource.agent_manager.inner.iter() {
+                agent.borrow_mut().agent_clear_episode();
+                if *key == best_idx {
+                    continue;
+                }
+                agent.borrow_mut().new_model_reset_stats();
+                other_handles.push(agent.borrow().flappy.clone());
+            }
+            let registry_snapshot: RegistrySnapshot = registry.0.clone();
+
             let replacement_task = replacement.clone();
 
             spawn_local(async move {
-                let best_record = inner[&best_idx].borrow().flappy.clone().into_record();
-
-                let mut registry_snapshot: HashSet<u32> = HashSet::new();
-
-                for (key, agent) in inner.iter() {
-                    agent.borrow_mut().agent_clear_episode();
-                    if *key == best_idx {
-                        continue;
-                    }
-                    let mut a = agent.borrow_mut();
-                    a.new_model_reset_stats();
-                    a.flappy = a.flappy.clone().load_record(best_record.clone());
-                    registry_snapshot.insert(*key);
+                for handle in other_handles.iter() {
+                    *handle.borrow_mut() = best_model.borrow().clone();
                 }
-
-                *replacement_task.borrow_mut() = ReplacementState::Ready(registry_snapshot);
             });
+
+            *replacement_task.borrow_mut() = ReplacementState::Ready(registry_snapshot);
         }
 
         ReplacementState::Ready(_) => unreachable!("handled in step 0 above"),
