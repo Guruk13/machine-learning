@@ -147,20 +147,36 @@ fn think(
             agent.state.score = bird.score;
         }
 
-        let (lo, hi) = (
-            state.next_pipe_top_y.min(state.next_pipe_bottom_y),
-            state.next_pipe_top_y.max(state.next_pipe_bottom_y),
-        );
-        let in_gap = state.bird_y > lo && state.bird_y < hi;
-        // Small bonus for staying near the centre of the gap
-        reward = reward
-            + if in_gap {
-                RewardPrizes::default().alive
+        if nearest_top.exists || nearest_bot.exists {
+            let (lo, hi) = (
+                state.next_pipe_top_y.min(state.next_pipe_bottom_y),
+                state.next_pipe_top_y.max(state.next_pipe_bottom_y),
+            );
+            let center = (lo + hi) / 2.0;
+            let half_gap = (hi - lo) / 2.0;
+            let dist_ratio = ((state.bird_y - center).abs() / half_gap).min(1.0);
+            reward += RewardPrizes::default().alive * (1.0 - dist_ratio); // continuous, not binary
+        } else {
+            let half_canvas = CANVAS_SIZE[1] / 2.0;
+            let sweet_half_height = 1.5 * PLAYER_SIZE; // 3*PLAYER_SIZE total band, centered on 0
+            let dist_from_center = state.bird_y.abs();
+
+            let alive = RewardPrizes::default().alive;
+
+            reward += if dist_from_center <= sweet_half_height {
+                alive // inside the sweet spot: full reward
             } else {
-                -RewardPrizes::default().alive
+                // linearly decay from `alive` at the sweet-spot edge to 0 at the canvas edge
+                let decay_range = half_canvas - sweet_half_height;
+                let dist_past_sweet = dist_from_center - sweet_half_height;
+                let falloff = (1.0 - dist_past_sweet / decay_range).max(0.0);
+                alive * falloff
             };
+        }
         let action = agent.select_action();
 
+        #[cfg(target_arch = "wasm32")]
+        web_sys::console::log_1(&format!("{:?}", &reward).into());
         match action {
             Action::DoNothing => {}
             Action::Jump => {
@@ -235,12 +251,15 @@ pub fn run_forwards_and_optims(
             };
 
             *replacement.borrow_mut() = ReplacementState::Descending(best_idx);
-
-            let agent = am_ressource.agent_manager.inner[&best_idx].clone();
+            //since model is 1-2 frames behind , the death reward must be forcefully recorded
+            let a = am_ressource.agent_manager.inner[&best_idx].clone();
+            let i = a.borrow().state.episode.len() - 1; // borrow(), not borrow_mut() — read-only
+            a.borrow_mut().state.episode[i].reward = RewardPrizes::default().dying;
+            drop(a);
+            let a = am_ressource.agent_manager.inner[&best_idx].clone();
             let replacement_task = replacement.clone();
-
             spawn_local(async move {
-                let loss: f32 = agent.borrow_mut().update_policy().await;
+                let loss: f32 = a.borrow_mut().update_policy().await;
                 #[cfg(target_arch = "wasm32")]
                 web_sys::console::log_1(&format!("descend loss: {:?}", loss).into());
 
@@ -249,31 +268,29 @@ pub fn run_forwards_and_optims(
         }
 
         ReplacementState::Descending(_) => {
-            // descend task already in flight — nothing to do this frame
+            // Please standby
         }
 
         ReplacementState::Replacing(best_idx) => {
-            let best_model = am_ressource.agent_manager.inner[&best_idx]
-                .borrow_mut()
-                .flappy
-                .clone();
-            let mut other_handles: Vec<Rc<RefCell<FlappyNet>>> = Vec::new();
-
-            for (key, agent) in am_ressource.agent_manager.inner.iter() {
-                agent.borrow_mut().agent_clear_episode();
-                if *key == best_idx {
-                    continue;
-                }
-                agent.borrow_mut().new_model_reset_stats();
-                other_handles.push(agent.borrow().flappy.clone());
-            }
-            let registry_snapshot: RegistrySnapshot = registry.0.clone();
+            let inner = am_ressource.agent_manager.inner.clone();
             let replacement_task = replacement.clone();
 
             spawn_local(async move {
-                for handle in other_handles.iter() {
-                    *handle.borrow_mut() = best_model.borrow().clone();
+                let best_record = inner[&best_idx].borrow().flappy.clone().into_record();
+
+                let mut registry_snapshot: HashSet<u32> = HashSet::new();
+
+                for (key, agent) in inner.iter() {
+                    agent.borrow_mut().agent_clear_episode();
+                    if *key == best_idx {
+                        continue;
+                    }
+                    let mut a = agent.borrow_mut();
+                    a.new_model_reset_stats();
+                    a.flappy = a.flappy.clone().load_record(best_record.clone());
+                    registry_snapshot.insert(*key);
                 }
+
                 *replacement_task.borrow_mut() = ReplacementState::Ready(registry_snapshot);
             });
         }
@@ -322,6 +339,8 @@ impl std::ops::Sub<f32> for PartialReward {
     }
 }
 struct PipeEdgeInfo {
+    //conendrum: there might be pipes , but no next pipes : hence exists
+    exists: bool,
     edge_y: f32,
     remaining_x: f32,
 }
@@ -329,10 +348,12 @@ struct PipeEdgeInfo {
 fn extract_top_pipe(top: Option<&(&GlobalTransform, &Aabb)>, bird_left_edge: f32) -> PipeEdgeInfo {
     match top {
         Some((t, aabb)) => PipeEdgeInfo {
+            exists: true,
             edge_y: t.translation().y - aabb.half_extents.y,
             remaining_x: (t.translation().x + aabb.half_extents.x) - bird_left_edge,
         },
         None => PipeEdgeInfo {
+            exists: false,
             edge_y: CANVAS_SIZE[1] / 2.0 + 1.0,
             remaining_x: -PLAYER_SIZE / 2.0 - 30.0,
         },
@@ -345,10 +366,12 @@ fn extract_bottom_pipe(
 ) -> PipeEdgeInfo {
     match bottom {
         Some((t, aabb)) => PipeEdgeInfo {
+            exists: true,
             edge_y: t.translation().y + aabb.half_extents.y,
             remaining_x: (t.translation().x + aabb.half_extents.x) - bird_left_edge,
         },
         None => PipeEdgeInfo {
+            exists: false,
             edge_y: -CANVAS_SIZE[1] / 2.0 - 1.0,
             remaining_x: -PLAYER_SIZE / 2.0 - 30.0,
         },

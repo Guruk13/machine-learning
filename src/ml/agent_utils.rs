@@ -92,18 +92,7 @@ pub struct RewardPrizes {
 
     pub jump_cost: f32,
 }
-impl Default for RewardPrizes {
-    fn default() -> Self {
-        Self {
-            dying: -50.0,
-            pipe_death: -1.0,
 
-            pipe_cleared: 2.,
-            alive: 0.1,
-            jump_cost: 0.01,
-        }
-    }
-}
 #[derive(Component)]
 pub struct AgentState {
     pub is_dead: bool,
@@ -149,8 +138,21 @@ pub struct AgentDefault {
 impl Default for AgentDefault {
     fn default() -> Self {
         Self {
-            gamma: 0.90,
+            gamma: 0.96,
             learning_rate: 1e-4,
+        }
+    }
+}
+
+impl Default for RewardPrizes {
+    fn default() -> Self {
+        Self {
+            dying: -2.0,
+            pipe_death: -1.0,
+
+            pipe_cleared: 2.,
+            alive: 0.1,
+            jump_cost: 0.0,
         }
     }
 }
