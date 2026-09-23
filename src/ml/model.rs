@@ -82,6 +82,7 @@ pub struct FlappyGradientAgent {
     pub(crate) device: Device<MyAutodiffBackend>,
     pub(crate) state: AgentState,
     pub(crate) stats: AgentStats,
+    pub(crate) settings: AgentDefault,
 
     // background-inference bookkeeping
     pending_action: Rc<RefCell<Option<Action>>>,
@@ -92,7 +93,7 @@ pub struct FlappyGradientAgent {
 #[wasm_bindgen]
 impl FlappyGradientAgent {
     #[wasm_bindgen(constructor)]
-    pub fn new() -> Self {
+    pub fn new(settings: AgentDefault) -> Self {
         let device = get_global_device();
         Self {
             flappy: Rc::new(RefCell::new(FlappyNet::new())),
@@ -103,6 +104,7 @@ impl FlappyGradientAgent {
             pending_action: Rc::new(RefCell::new(None)),
             action_inflight: Rc::new(RefCell::new(false)),
             last_action: Action::DoNothing,
+            settings: settings,
         }
     }
 
@@ -203,7 +205,7 @@ impl FlappyGradientAgent {
         let mut returns = vec![0.0f32; n];
         let mut running = 0.0f32;
         for t in (0..n).rev() {
-            running = self.state.episode[t].reward + AgentDefault::default().gamma * running;
+            running = self.state.episode[t].reward + self.settings.gamma * running;
             returns[t] = running;
         }
 
@@ -265,9 +267,7 @@ impl FlappyGradientAgent {
         let grads = GradientsParams::from_grads::<MyAutodiffBackend, _>(grads, &net);
         // take an owned FlappyNet out (clones the net, not the Rc/RefCell)
 
-        let updated = self
-            .optimizer
-            .step(AgentDefault::default().learning_rate, net, grads);
+        let updated = self.optimizer.step(self.settings.learning_rate, net, grads);
 
         // write the new FlappyNet back into the same cell
         *self.flappy.borrow_mut() = updated;

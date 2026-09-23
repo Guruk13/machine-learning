@@ -1,6 +1,7 @@
 use burn::backend::wgpu::Wgpu;
 use burn::backend::Autodiff;
 
+use crate::ml::agent_utils::GradedRunners;
 use crate::ml::multiagent::AgentManager;
 use std::cell::RefCell;
 use std::collections::HashSet;
@@ -23,11 +24,11 @@ pub struct AMRessource {
 }
 
 // ── shared state, single source of truth (see previous message) ─────────
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Clone)]
 pub enum ReplacementState<T> {
     Idle,
-    Descending(u32),
-    Replacing(u32),
+    Descending(GradedRunners),
+    Replacing(GradedRunners),
     Ready(T),
 }
 type MyBackend = Wgpu<f32, i32>;

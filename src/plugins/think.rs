@@ -1,11 +1,12 @@
 use super::pipes::*;
-use crate::ml::agent_utils::{Action, GameStateFeatures, RewardPrizes};
+use crate::ml::agent_utils::{Action, GameStateFeatures, GradedRunners, RewardPrizes};
 use crate::ml::model::FlappyNet;
 use crate::player::{
     Bird, BirdInventory, BirdJump, GameSets, PipeBottom, PipeTop, Player, Velocity,
 };
 use crate::RegistrySnapshot;
 use crate::{AMRessource, ReplacementState};
+use itertools::{Itertools, MinMaxResult};
 use wasm_bindgen_futures::spawn_local;
 
 use bevy::camera::primitives::Aabb;
@@ -174,9 +175,13 @@ fn think(
             };
         }
         let action = agent.select_action();
+        //[...] for the sacred icon has been found
+        if bird.score > 15 {
+            #[cfg(target_arch = "wasm32")]
+            web_sys::console::log_1(&format!("{:?}", agent.settings).into());
+            panic!("with it, our path is clear")
+        }
 
-        #[cfg(target_arch = "wasm32")]
-        web_sys::console::log_1(&format!("{:?}", &reward).into());
         match action {
             Action::DoNothing => {}
             Action::Jump => {
@@ -214,7 +219,7 @@ fn think(
 //this function is end of the line for async works : it hands off major tensor tasks to wasm worker before resuming them in another micro task loop
 pub fn run_forwards_and_optims(
     mut registry: ResMut<DeadBirdRegistry>,
-    am_ressource: NonSendMut<AMRessource>,
+    mut am_ressource: NonSendMut<AMRessource>,
     mut live_inventory: ResMut<BirdInventory>,
 ) {
     {
@@ -234,36 +239,46 @@ pub fn run_forwards_and_optims(
     match current_state {
         ReplacementState::Idle => {
             // ── 1. Pick the best agent (cheap, CPU-only — stays sync) ──
-            let best_idx: u32 = if let Some((key, _agent)) = am_ressource
-                .agent_manager
-                .inner
-                .iter()
-                .max_by(|(_, a), (_, b)| {
-                    a.borrow_mut()
-                        .stats
-                        .total_score
-                        .partial_cmp(&b.borrow_mut().stats.total_score)
-                        .unwrap()
-                }) {
-                *key
-            } else {
-                *am_ressource.agent_manager.inner.keys().next().unwrap()
-            };
 
-            *replacement.borrow_mut() = ReplacementState::Descending(best_idx);
+            let graded: GradedRunners =
+                match am_ressource
+                    .agent_manager
+                    .inner
+                    .iter()
+                    .minmax_by(|(_, a), (_, b)| {
+                        a.borrow_mut()
+                            .stats
+                            .total_score
+                            .partial_cmp(&b.borrow_mut().stats.total_score)
+                            .unwrap()
+                    }) {
+                    MinMaxResult::NoElements => {
+                        // empty map — fall back to some sentinel, adjust as needed
+                        panic!("agent_manager.inner is empty")
+                    }
+                    MinMaxResult::OneElement(_) => {
+                        panic!("must have at least two agents ")
+                    }
+                    MinMaxResult::MinMax((worst_key, _), (best_key, _)) => GradedRunners {
+                        best: *best_key,
+                        worst: *worst_key,
+                    },
+                };
+
+            *replacement.borrow_mut() = ReplacementState::Descending(graded.clone());
             //since model is 1-2 frames behind , the death reward must be forcefully recorded
-            let a = am_ressource.agent_manager.inner[&best_idx].clone();
+            let a = am_ressource.agent_manager.inner[&graded.best].clone();
             let i = a.borrow().state.episode.len() - 1; // borrow(), not borrow_mut() — read-only
             a.borrow_mut().state.episode[i].reward = RewardPrizes::default().dying;
             drop(a);
-            let a = am_ressource.agent_manager.inner[&best_idx].clone();
+            let a = am_ressource.agent_manager.inner[&graded.best].clone();
             let replacement_task = replacement.clone();
             spawn_local(async move {
                 let loss: f32 = a.borrow_mut().update_policy().await;
                 #[cfg(target_arch = "wasm32")]
                 web_sys::console::log_1(&format!("descend loss: {:?}", loss).into());
 
-                *replacement_task.borrow_mut() = ReplacementState::Replacing(best_idx);
+                *replacement_task.borrow_mut() = ReplacementState::Replacing(graded);
             });
         }
 
@@ -271,20 +286,28 @@ pub fn run_forwards_and_optims(
             // Please standby
         }
 
-        ReplacementState::Replacing(best_idx) => {
-            let best_model = am_ressource.agent_manager.inner[&best_idx]
+        ReplacementState::Replacing(graded) => {
+            let best_model = am_ressource.agent_manager.inner[&graded.best]
                 .borrow_mut()
                 .flappy
                 .clone();
             let mut other_handles: Vec<Rc<RefCell<FlappyNet>>> = Vec::new();
-
+            let mut to_remove: Option<u32> = None;
             for (key, agent) in am_ressource.agent_manager.inner.iter() {
                 agent.borrow_mut().agent_clear_episode();
-                if *key == best_idx {
+                if *key == graded.best || agent.borrow().stats.episodes < 15 {
+                    continue;
+                }
+                if *key == graded.worst && agent.borrow().stats.episodes > 5 {
+                    //this is the new innovator agent , it is out of replacement and will be assigned an agent in the next run
+                    to_remove = Some(*key);
                     continue;
                 }
                 agent.borrow_mut().new_model_reset_stats();
                 other_handles.push(agent.borrow().flappy.clone());
+            }
+            if let Some(key) = to_remove {
+                am_ressource.agent_manager.inner.remove(&key);
             }
             let registry_snapshot: RegistrySnapshot = registry.0.clone();
 

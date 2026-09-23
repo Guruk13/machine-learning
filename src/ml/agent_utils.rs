@@ -1,3 +1,5 @@
+use core::f32;
+
 use bevy::prelude::{Component, Reflect};
 use wasm_bindgen::prelude::*;
 #[derive(Debug, Clone)]
@@ -6,10 +8,11 @@ pub struct EpisodeStep {
     pub action: Action,
     pub reward: f32,
 }
-// ─────────────────────────────────────────────────────────────────────────────
-// 2.  PER-AGENT STATISTICS
-// ─────────────────────────────────────────────────────────────────────────────
-
+#[derive(Debug, Clone)]
+pub struct GradedRunners {
+    pub best: u32,
+    pub worst: u32,
+}
 /// Rolling statistics for one agent.
 #[derive(Debug, Copy, Clone)]
 pub struct AgentStats {
@@ -129,17 +132,29 @@ G_t = r_t + γ·r_{t+1} + γ²·r_{t+2} + γ³·r_{t+3} + ...
 What the Value Means
 GammaBehaviorγ = 0 Fully myopic — only cares about the immediate next rewardγ →
 1Fully far-sighted — values future rewards almost as much as current onesγ = 0.99 Common default — slight preference for sooner rewards */
-
+#[derive(Debug)]
+#[wasm_bindgen]
 pub struct AgentDefault {
     pub gamma: f32,
     pub learning_rate: f64,
 }
 
-impl Default for AgentDefault {
-    fn default() -> Self {
+impl AgentDefault {
+    pub fn new() -> Self {
+        let r1 = js_sys::Math::random() as f32; // [0, 1)
+        let r2 = js_sys::Math::random() as f32;
+
+        // gamma: discount factor, kept in [0.90, 0.999]
+        let gamma = 0.90 + r1 * (0.999 - 0.90);
+
+        // learning_rate: log-uniform between 1e-5 and 1e-3
+        let log_min = (1e-5f32).ln();
+        let log_max = (1e-3f32).ln();
+        let learning_rate = (log_min + r2 * (log_max - log_min)).exp() as f64;
+
         Self {
-            gamma: 0.95,
-            learning_rate: 1e-3,
+            gamma,
+            learning_rate,
         }
     }
 }
@@ -147,11 +162,11 @@ impl Default for AgentDefault {
 impl Default for RewardPrizes {
     fn default() -> Self {
         Self {
-            dying: -10.0,
-            pipe_death: -1.0,
+            dying: -5.0,
+            pipe_death: -2.0,
 
-            pipe_cleared: 2.,
-            alive: 0.1,
+            pipe_cleared: 10.,
+            alive: 0.01,
             jump_cost: 0.0,
         }
     }

@@ -1,3 +1,5 @@
+use crate::ml::agent_utils::AgentDefault;
+
 use super::agent_utils::GameStateFeatures;
 use super::model::FlappyGradientAgent;
 use std::collections::HashMap;
@@ -17,10 +19,9 @@ impl AgentManager {
     }
 
     pub fn bind_agent(&mut self, key: u32, game_state: GameStateFeatures) {
-        let agent = self
-            .inner
-            .entry(key)
-            .or_insert_with(|| Rc::new(RefCell::new(FlappyGradientAgent::new())));
+        let agent = self.inner.entry(key).or_insert_with(|| {
+            Rc::new(RefCell::new(FlappyGradientAgent::new(AgentDefault::new())))
+        });
         agent
             .borrow_mut()
             .state
