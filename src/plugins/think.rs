@@ -269,7 +269,7 @@ pub fn run_forwards_and_optims(
             //since model is 1-2 frames behind , the death reward must be forcefully recorded
             let a = am_ressource.agent_manager.inner[&graded.best].clone();
             let i = a.borrow().state.episode.len() - 1; // borrow(), not borrow_mut() — read-only
-            a.borrow_mut().state.episode[i].reward = RewardPrizes::default().dying;
+            a.borrow_mut().state.episode[i].reward = RewardPrizes::default().pipe_death;
             drop(a);
             let a = am_ressource.agent_manager.inner[&graded.best].clone();
             let replacement_task = replacement.clone();
@@ -295,7 +295,7 @@ pub fn run_forwards_and_optims(
             let mut to_remove: Option<u32> = None;
             for (key, agent) in am_ressource.agent_manager.inner.iter() {
                 agent.borrow_mut().agent_clear_episode();
-                if *key == graded.best || agent.borrow().stats.episodes < 15 {
+                if *key == graded.best || agent.borrow().stats.episodes < 10 {
                     continue;
                 }
                 if *key == graded.worst && agent.borrow().stats.episodes > 5 {

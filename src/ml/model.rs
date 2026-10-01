@@ -1,11 +1,10 @@
 use crate::staticdevice::get_global_device;
 
-use burn::nn::DropoutConfig;
 use burn::{
     module::Module,
-    nn::{Dropout, Linear, LinearConfig, Relu},
+    nn::{Linear, LinearConfig, Relu},
     optim::{adaptor::OptimizerAdaptor, Adam, AdamConfig, GradientsParams, Optimizer},
-    tensor::{activation::softmax, Tensor},
+    tensor::{activation::sigmoid, Tensor},
 };
 
 use super::agent_utils::{Action, AgentDefault, AgentState, AgentStats, EpisodeStep};
@@ -20,15 +19,14 @@ use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::spawn_local;
 
 // ─────────────────────────────────────────────
-// POLICY NETWORK  (unchanged)
+// POLICY NETWORK  (8 → 12 → 1, sigmoid output)
 // ─────────────────────────────────────────────
 #[derive(Module, Debug, Clone)]
 #[wasm_bindgen]
 pub struct FlappyNet {
-    linear1: Linear<MyAutodiffBackend>, // 8 → 16
-    linear2: Linear<MyAutodiffBackend>, // 16 → 2
+    linear1: Linear<MyAutodiffBackend>, // 8 → 12
+    linear2: Linear<MyAutodiffBackend>, // 12 → 1
     activation: Relu,
-    dropout: Dropout,
 }
 
 impl FlappyNet {
@@ -36,14 +34,13 @@ impl FlappyNet {
         let device = get_global_device();
         Self {
             activation: Relu::new(),
-            dropout: DropoutConfig::new(0.2).init(),
-            linear1: LinearConfig::new(8, 16).init(&device),
-            linear2: LinearConfig::new(16, 2).init(&device),
+            linear1: LinearConfig::new(8, 12).init(&device),
+            linear2: LinearConfig::new(12, 1).init(&device),
         }
     }
 
     /// Input  shape : [batch, 8]
-    /// Output shape : [batch, 2]  — softmax probabilities
+    /// Output shape : [batch, 1]  — P(jump)
     pub fn forward(
         &self,
         x: Tensor<MyAutodiffBackend, 2>,
@@ -51,7 +48,7 @@ impl FlappyNet {
     ) -> Tensor<MyAutodiffBackend, 2> {
         let x = self.linear1.forward(x);
         let x = self.activation.forward(x);
-        softmax(self.linear2.forward(x), 1)
+        sigmoid(self.linear2.forward(x))
     }
 }
 
@@ -149,10 +146,10 @@ impl FlappyGradientAgent {
             let action_inflight = self.action_inflight.clone();
 
             spawn_local(async move {
-                let probs = net.forward(input, false);
+                let probs = net.forward(input, false); // [1, 1]
 
                 let p_jump: f32 = probs
-                    .slice([0..1, 1..2])
+                    .slice([0..1, 0..1])
                     .into_scalar_async()
                     .await
                     .expect("failed to read p_jump scalar from tensor");
@@ -227,32 +224,35 @@ impl FlappyGradientAgent {
             Tensor::<MyAutodiffBackend, 1>::from_floats(flat_states.as_slice(), &self.device)
                 .reshape([n, 8]);
 
+        // 1.0 = jumped, 0.0 = did nothing (requires Action::Jump as i64 == 1)
         let action_idx: Vec<i64> = self.state.episode.iter().map(|s| s.action as i64).collect();
 
         // ── d. Forward pass ───────────────────────────────────────────────
-        let log_probs =
-            burn::tensor::activation::log_softmax(self.flappy.borrow().forward(states, true), 1);
-        let probs = log_probs.clone().exp();
+        let p = self.flappy.borrow().forward(states, true); // [n, 1]
+        let p = p.clamp(1e-6, 1.0 - 1e-6); // avoid ln(0)
 
-        // One-hot mask → gather log prob of the action taken
-        let action_mask: Vec<f32> = (0..n)
-            .flat_map(|i| {
-                let mut row = [0.0f32; 2];
-                row[action_idx[i] as usize] = 1.0;
-                row
-            })
-            .collect();
-        let mask =
-            Tensor::<MyAutodiffBackend, 1>::from_floats(action_mask.as_slice(), &self.device)
-                .reshape([n, 2]);
-        let selected_log_probs = (log_probs.clone() * mask).sum_dim(1); // [n, 1]
+        let jumped: Vec<f32> = action_idx.iter().map(|&a| a as f32).collect();
+        let jumped = Tensor::<MyAutodiffBackend, 1>::from_floats(jumped.as_slice(), &self.device)
+            .reshape([n, 1]);
+
+        let log_p = p.clone().log();
+        let one_minus_p = p.clone().neg().add_scalar(1.0);
+        let log_1mp = one_minus_p.clone().log();
+
+        // log π(a|s) = a·ln(p) + (1−a)·ln(1−p)
+        let selected_log_probs =
+            jumped.clone() * log_p.clone() + jumped.neg().add_scalar(1.0) * log_1mp.clone(); // [n, 1]
 
         let returns_t =
             Tensor::<MyAutodiffBackend, 1>::from_floats(normalised.as_slice(), &self.device)
                 .reshape([n, 1]);
-        let entropy = (probs * log_probs).sum_dim(1).mean().neg();
+
+        // Bernoulli entropy: −[p·ln p + (1−p)·ln(1−p)]
+        let entropy = (p * log_p + one_minus_p * log_1mp).mean().neg();
 
         // ── e. Loss = −mean( log π(a|s) · G ) − β·H[π] ──────────────────────
+        // NOTE: Bernoulli entropy maxes at ln2 ≈ 0.69; 0.3 is a strong
+        // coefficient. Try 0.01–0.05 if the policy stays near 50/50.
         let loss = (selected_log_probs * returns_t).mean().neg() - entropy.mul_scalar(0.3f32);
 
         let loss_scalar: f32 = loss

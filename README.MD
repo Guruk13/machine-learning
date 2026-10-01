@@ -1,5 +1,6 @@
 build:
 
+export PATH="$HOME/.cargo/bin:$PATH"
 
 cargo build --release --target wasm32-unknown-unknown   --features "bevy/webgpu,bevy/bevy_winit,bevy/bevy_render,bevy/bevy_core_pipeline,bevy/bevy_sprite,bevy/bevy_text,bevy/bevy_ui,bevy/bevy_asset,bevy/png" && wasm-bindgen --out-dir ./out --target web   ./target/wasm32-unknown-unknown/release/flappy-bird.wasm
 to run on web : 

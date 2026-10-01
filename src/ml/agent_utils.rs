@@ -141,16 +141,16 @@ pub struct AgentDefault {
 
 impl AgentDefault {
     pub fn new() -> Self {
-        let r1 = js_sys::Math::random() as f32; // [0, 1)
-        let r2 = js_sys::Math::random() as f32;
+        let r1 = js_sys::Math::random();
+        let r2 = js_sys::Math::random();
 
-        // gamma: discount factor, kept in [0.90, 0.999]
-        let gamma = 0.90 + r1 * (0.999 - 0.90);
+        // gamma: random pick from {0.90, 0.91, ..., 0.99}
+        let gamma = (90 + (r1 * 10.0).floor() as u32) as f32 / 100.0;
 
-        // learning_rate: log-uniform between 1e-5 and 1e-3
-        let log_min = (1e-5f32).ln();
-        let log_max = (1e-3f32).ln();
-        let learning_rate = (log_min + r2 * (log_max - log_min)).exp() as f64;
+        // learning_rate: random pick from curated values
+        const LEARNING_RATES: [f64; 3] = [1e-5, 1e-4, 1e-3];
+        let idx = (r2 * LEARNING_RATES.len() as f64).floor() as usize;
+        let learning_rate = LEARNING_RATES[idx];
 
         Self {
             gamma,
@@ -162,11 +162,11 @@ impl AgentDefault {
 impl Default for RewardPrizes {
     fn default() -> Self {
         Self {
-            dying: -5.0,
-            pipe_death: -2.0,
+            dying: -5.,
+            pipe_death: -0.1,
 
-            pipe_cleared: 10.,
-            alive: 0.01,
+            pipe_cleared: 5.,
+            alive: 0.1,
             jump_cost: 0.0,
         }
     }
