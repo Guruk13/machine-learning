@@ -390,9 +390,6 @@ fn bird_respawn(
             commands.spawn(Bird::new(&asset_server, false, value));
             //warn!("spawn {:?}", value)
         }
-
-        //warn!("{:?}", birdinv.0.len());
-        // drain already clears, no need for .clear()
     }
     Ok(())
 }

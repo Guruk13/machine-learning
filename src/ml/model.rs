@@ -24,8 +24,8 @@ use wasm_bindgen_futures::spawn_local;
 #[derive(Module, Debug, Clone)]
 #[wasm_bindgen]
 pub struct FlappyNet {
-    linear1: Linear<MyAutodiffBackend>, // 8 → 12
-    linear2: Linear<MyAutodiffBackend>, // 12 → 1
+    linear1: Linear<MyAutodiffBackend>,
+    linear2: Linear<MyAutodiffBackend>,
     activation: Relu,
 }
 
@@ -34,8 +34,8 @@ impl FlappyNet {
         let device = get_global_device();
         Self {
             activation: Relu::new(),
-            linear1: LinearConfig::new(8, 12).init(&device),
-            linear2: LinearConfig::new(12, 1).init(&device),
+            linear1: LinearConfig::new(8, 4).init(&device),
+            linear2: LinearConfig::new(4, 1).init(&device),
         }
     }
 

@@ -68,7 +68,7 @@ impl GameStateFeatures {
     pub fn to_array(&self) -> [f32; 8] {
         [
             self.bird_y,
-            self.bird_speed,
+            self.bird_speed, // multiply speed to make more noise in the tensors
             self.next_pipe_top_y,
             self.next_pipe_bottom_y,
             self.second_bot_y,
@@ -145,10 +145,10 @@ impl AgentDefault {
         let r2 = js_sys::Math::random();
 
         // gamma: random pick from {0.90, 0.91, ..., 0.99}
-        let gamma = (90 + (r1 * 10.0).floor() as u32) as f32 / 100.0;
+        let gamma = (90 + (r1 * 8.0).floor() as u32) as f32 / 100.0;
 
         // learning_rate: random pick from curated values
-        const LEARNING_RATES: [f64; 3] = [1e-5, 1e-4, 1e-3];
+        const LEARNING_RATES: [f64; 2] = [1e-4, 1e-3];
         let idx = (r2 * LEARNING_RATES.len() as f64).floor() as usize;
         let learning_rate = LEARNING_RATES[idx];
 
@@ -162,10 +162,10 @@ impl AgentDefault {
 impl Default for RewardPrizes {
     fn default() -> Self {
         Self {
-            dying: -5.,
+            dying: -1.,
             pipe_death: -0.1,
 
-            pipe_cleared: 5.,
+            pipe_cleared: 15.,
             alive: 0.1,
             jump_cost: 0.0,
         }

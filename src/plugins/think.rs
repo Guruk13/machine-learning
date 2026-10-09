@@ -2,8 +2,9 @@ use super::pipes::*;
 use crate::ml::agent_utils::{Action, GameStateFeatures, GradedRunners, RewardPrizes};
 use crate::ml::model::FlappyNet;
 use crate::player::{
-    Bird, BirdInventory, BirdJump, GameSets, PipeBottom, PipeTop, Player, Velocity,
+    Bird, BirdInventory, BirdJump, GameSets, Pipe, PipeBottom, PipeTop, Player, Velocity,
 };
+
 use crate::RegistrySnapshot;
 use crate::{AMRessource, ReplacementState};
 use itertools::{Itertools, MinMaxResult};
@@ -108,7 +109,7 @@ fn think(
 
         let state = GameStateFeatures {
             bird_y: transform.translation.y,
-            bird_speed: calculated_velocity,
+            bird_speed: calculated_velocity * 100.,
             next_pipe_top_y: nearest_top.edge_y,
             next_pipe_bottom_y: nearest_bot.edge_y,
             second_top_y: second_top.edge_y,
@@ -155,11 +156,11 @@ fn think(
             );
             let center = (lo + hi) / 2.0;
             let half_gap = (hi - lo) / 2.0;
-            let dist_ratio = ((state.bird_y - center).abs() / half_gap).min(1.0);
+            let dist_ratio = ((state.bird_y - center).abs() / half_gap);
             reward += RewardPrizes::default().alive * (1.0 - dist_ratio); // continuous, not binary
         } else {
             let half_canvas = CANVAS_SIZE[1] / 2.0;
-            let sweet_half_height = 1.5 * PLAYER_SIZE; // 3*PLAYER_SIZE total band, centered on 0
+            let sweet_half_height = 0.1 * PLAYER_SIZE; // 3*PLAYER_SIZE total band, centered on 0
             let dist_from_center = state.bird_y.abs();
 
             let alive = RewardPrizes::default().alive;
@@ -176,6 +177,8 @@ fn think(
         }
         let action = agent.select_action();
         //[...] for the sacred icon has been found
+        #[cfg(target_arch = "wasm32")]
+        web_sys::console::log_1(&format!("{:?}", state).into());
         if bird.score > 15 {
             #[cfg(target_arch = "wasm32")]
             web_sys::console::log_1(&format!("{:?}", agent.settings).into());
@@ -196,6 +199,8 @@ fn think(
         }
 
         agent.record_step(action, reward);
+        #[cfg(target_arch = "wasm32")]
+        web_sys::console::log_1(&format!("{:?}", reward).into());
     }
     //Gamestate has been processed , process bird's agent  stats
     let birds_dead: Vec<_> = all_birds
@@ -211,16 +216,15 @@ fn think(
             .borrow_mut()
             .agent_finish_episode();
     }
-    //    #[cfg(target_arch = "wasm32")]
-    //    web_sys::console::log_1(&format!("{:?}", "purgatory").into());
-    //    #[cfg(target_arch = "wasm32")]
-    //web_sys::console::log_1(&format!("{:?}", &birds_dead).into());
 }
 //this function is end of the line for async works : it hands off major tensor tasks to wasm worker before resuming them in another micro task loop
 pub fn run_forwards_and_optims(
     mut registry: ResMut<DeadBirdRegistry>,
     mut am_ressource: NonSendMut<AMRessource>,
     mut live_inventory: ResMut<BirdInventory>,
+
+    mut commands: Commands,
+    pipes: Query<(Entity, &Transform), With<Pipe>>,
 ) {
     {
         // ── 0. Catch a precedent future, if one landed since we last ran.
@@ -295,10 +299,10 @@ pub fn run_forwards_and_optims(
             let mut to_remove: Option<u32> = None;
             for (key, agent) in am_ressource.agent_manager.inner.iter() {
                 agent.borrow_mut().agent_clear_episode();
-                if *key == graded.best || agent.borrow().stats.episodes < 10 {
+                if *key == graded.best || agent.borrow().stats.episodes < 20 {
                     continue;
                 }
-                if *key == graded.worst && agent.borrow().stats.episodes > 5 {
+                if *key == graded.worst && agent.borrow().stats.episodes > 15 {
                     //this is the new innovator agent , it is out of replacement and will be assigned an agent in the next run
                     to_remove = Some(*key);
                     continue;
@@ -323,6 +327,10 @@ pub fn run_forwards_and_optims(
         }
 
         ReplacementState::Ready(_) => unreachable!("handled in step 0 above"),
+    }
+    //clean slate
+    for (e, _) in pipes.iter() {
+        commands.entity(e).despawn();
     }
 }
 pub fn no_birds_in_main_system(
