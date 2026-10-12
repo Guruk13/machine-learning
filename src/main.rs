@@ -19,7 +19,15 @@ use burn::tensor::Device;
 use flappy_bird::AMRessource;
 use flappy_bird::BrainPlugin;
 use std::rc::Rc;
+use std::time::Duration;
 use std::{cell::RefCell, collections::HashSet};
+fn tick_lifetime(time: Res<Time<Fixed>>, mut query: Query<&mut Lifetime>) {
+    for mut life in &mut query {
+        life.ticks += 1;
+    }
+}
+
+// app.add_systems(FixedUpdate, tick_lifetime);
 
 fn main() {
     // sync main — just kicks off the async work and doesn't wait for it
@@ -93,7 +101,7 @@ async fn async_main() {
         // here pipes can obstruct the spawn point. spawn a bird only in somewhat fair conditions
         .add_systems(
             FixedPostUpdate,
-            (ApplyDeferred, despawn_deads, bird_respawn)
+            (ApplyDeferred, tick_lifetime, despawn_deads, bird_respawn)
                 .chain()
                 .in_set(GameSets::Cleanup),
         )

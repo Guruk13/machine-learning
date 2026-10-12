@@ -2,7 +2,7 @@ use super::pipes::*;
 use crate::ml::agent_utils::{Action, GameStateFeatures, GradedRunners, RewardPrizes};
 use crate::ml::model::FlappyNet;
 use crate::player::{
-    Bird, BirdInventory, BirdJump, GameSets, Pipe, PipeBottom, PipeTop, Player, Velocity,
+    Bird, BirdInventory, BirdJump, GameSets, Lifetime, Pipe, PipeBottom, PipeTop, Player, Velocity,
 };
 
 use crate::RegistrySnapshot;
@@ -14,6 +14,7 @@ use bevy::camera::primitives::Aabb;
 use bevy::prelude::*;
 pub struct BrainPlugin;
 
+use std::cell::Cell;
 use std::cell::RefCell;
 use std::collections::HashSet;
 use std::rc::Rc;
@@ -41,7 +42,10 @@ impl Plugin for BrainPlugin {
 //Think Bird.  what will you have after 500 years ?
 fn think(
     mut commands: Commands,
-    birds: Query<(Entity, &Bird, &Transform, &Velocity, &Aabb), (With<Bird>, Without<Player>)>,
+    birds: Query<
+        (Entity, &Bird, &Transform, &Velocity, &Aabb, &Lifetime),
+        (With<Bird>, Without<Player>),
+    >,
 
     pipe_tops: Query<(&GlobalTransform, &Aabb), With<PipeTop>>,
     pipe_bottoms: Query<(&GlobalTransform, &Aabb), With<PipeBottom>>,
@@ -49,7 +53,7 @@ fn think(
     mut registry: ResMut<DeadBirdRegistry>,
 ) {
     let all_birds: Vec<_> = birds.iter().collect();
-    for (entity, bird, transform, velocity, bird_aabb) in &all_birds {
+    for (entity, bird, transform, velocity, bird_aabb, life) in &all_birds {
         let calculated_velocity = Vec2::new(PIPE_SPEED, velocity.0).to_angle();
         let bird_x = transform.translation.x;
         let bird_left_edge = bird_x + bird_aabb.half_extents.x;
@@ -114,8 +118,6 @@ fn think(
             next_pipe_bottom_y: nearest_bot.edge_y,
             second_top_y: second_top.edge_y,
             second_bot_y: second_bot.edge_y,
-            remaining_top_x: nearest_top.remaining_x,
-            remaining_bot_x: nearest_bot.remaining_x,
         };
 
         //for debugging purposes only
@@ -205,7 +207,7 @@ fn think(
     //Gamestate has been processed , process bird's agent  stats
     let birds_dead: Vec<_> = all_birds
         .iter()
-        .filter(|(_, bird, _, _, _)| bird.dead == true)
+        .filter(|(_, bird, _, _, _, _)| bird.dead == true)
         .collect();
 
     // warn!("{:?}", birds_dead.len());
@@ -222,24 +224,11 @@ pub fn run_forwards_and_optims(
     mut registry: ResMut<DeadBirdRegistry>,
     mut am_ressource: NonSendMut<AMRessource>,
     mut live_inventory: ResMut<BirdInventory>,
-
-    mut commands: Commands,
-    pipes: Query<(Entity, &Transform), With<Pipe>>,
 ) {
-    {
-        // ── 0. Catch a precedent future, if one landed since we last ran.
-        let mut slot = am_ressource.replacement.borrow_mut();
-        if let ReplacementState::Ready(finalized) = &*slot {
-            live_inventory.0 = finalized.clone();
-            registry.0.clear();
-            *slot = ReplacementState::Idle;
-            return;
-        }
-    }
-
     let replacement = am_ressource.replacement.clone();
     let current_state = am_ressource.replacement.borrow().clone();
-
+    let done: Rc<Cell<Option<bool>>> = Rc::new(Cell::new(None));
+    let done_task = done.clone();
     match current_state {
         ReplacementState::Idle => {
             // ── 1. Pick the best agent (cheap, CPU-only — stays sync) ──
@@ -291,47 +280,56 @@ pub fn run_forwards_and_optims(
         }
 
         ReplacementState::Replacing(graded) => {
-            let best_model = am_ressource.agent_manager.inner[&graded.best]
-                .borrow_mut()
-                .flappy
-                .clone();
-            let mut other_handles: Vec<Rc<RefCell<FlappyNet>>> = Vec::new();
-            let mut to_remove: Option<u32> = None;
-            for (key, agent) in am_ressource.agent_manager.inner.iter() {
-                agent.borrow_mut().agent_clear_episode();
-                if *key == graded.best || agent.borrow().stats.episodes < 20 {
-                    continue;
+            match done_task.get() {
+                None => {
+                    done_task.set(Some(false));
+                    let best_model = am_ressource.agent_manager.inner[&graded.best]
+                        .borrow_mut()
+                        .flappy
+                        .clone();
+                    let mut other_handles: Vec<Rc<RefCell<FlappyNet>>> = Vec::new();
+                    let mut to_remove: Option<u32> = None;
+                    for (key, agent) in am_ressource.agent_manager.inner.iter() {
+                        agent.borrow_mut().agent_clear_episode();
+
+                        if *key == graded.worst {
+                            //this is the new innovator agent , it is out of replacement and will be assigned an agent in the next run
+                            to_remove = Some(*key);
+                            continue;
+                        }
+                        agent.borrow_mut().new_model_reset_stats();
+                        other_handles.push(agent.borrow().flappy.clone());
+                    }
+                    if let Some(key) = to_remove {
+                        am_ressource.agent_manager.inner.remove(&key);
+                    }
+
+                    spawn_local(async move {
+                        for handle in other_handles.iter() {
+                            *handle.borrow_mut() = best_model.borrow().clone();
+                        }
+                        done_task.set(Some(true));
+                    });
                 }
-                if *key == graded.worst && agent.borrow().stats.episodes > 15 {
-                    //this is the new innovator agent , it is out of replacement and will be assigned an agent in the next run
-                    to_remove = Some(*key);
-                    continue;
+                Some(false) => {}
+                Some(true) => {
+                    let registry_snapshot: RegistrySnapshot = registry.0.clone();
+                    let replacement_task = replacement.clone();
+                    *replacement_task.borrow_mut() = ReplacementState::Ready(registry_snapshot);
+                    drop(done_task)
                 }
-                agent.borrow_mut().new_model_reset_stats();
-                other_handles.push(agent.borrow().flappy.clone());
             }
-            if let Some(key) = to_remove {
-                am_ressource.agent_manager.inner.remove(&key);
-            }
-            let registry_snapshot: RegistrySnapshot = registry.0.clone();
-
-            let replacement_task = replacement.clone();
-
-            spawn_local(async move {
-                for handle in other_handles.iter() {
-                    *handle.borrow_mut() = best_model.borrow().clone();
-                }
-            });
-
-            *replacement_task.borrow_mut() = ReplacementState::Ready(registry_snapshot);
         }
-
-        ReplacementState::Ready(_) => unreachable!("handled in step 0 above"),
+        ReplacementState::Ready(finalized) => {
+            live_inventory.0 = finalized.clone();
+            registry.0.clear();
+            *replacement.borrow_mut() = ReplacementState::Idle;
+        }
     }
     //clean slate
-    for (e, _) in pipes.iter() {
-        commands.entity(e).despawn();
-    }
+    // for (e, _) in pipes.iter() {
+    //    commands.entity(e).despawn();
+    // }
 }
 pub fn no_birds_in_main_system(
     alive: Query<&Bird>,

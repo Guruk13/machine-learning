@@ -56,7 +56,11 @@ pub struct BirdDeath {
 pub struct BirdJump(pub Entity);
 
 impl Bird {
-    pub fn new(asset_server: &AssetServer, rand: bool, id: u32) -> (Bird, Sprite, Transform) {
+    pub fn new(
+        asset_server: &AssetServer,
+        rand: bool,
+        id: u32,
+    ) -> (Bird, Sprite, Transform, Lifetime) {
         (
             Bird {
                 uid: id,
@@ -76,6 +80,7 @@ impl Bird {
             } else {
                 Transform::from_xyz(-CANVAS_SIZE.x / 4.0, 0.0, 1.0)
             },
+            Lifetime::default(),
         )
     }
 }
@@ -103,3 +108,14 @@ pub struct PointsGate {
 
 #[derive(Component, Default, Debug)]
 pub struct PendingActions(pub VecDeque<Action>);
+
+#[derive(Component)]
+pub struct Lifetime {
+    pub ticks: u32,
+}
+
+impl Default for Lifetime {
+    fn default() -> Self {
+        Self { ticks: 0 }
+    }
+}

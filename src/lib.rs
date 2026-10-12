@@ -33,5 +33,7 @@ pub enum ReplacementState<T> {
 }
 type MyBackend = Wgpu<f32, i32>;
 pub type MyAutodiffBackend = Autodiff<MyBackend>;
+#[derive(Debug, Clone)]
+pub struct Applying;
 
 unsafe impl Sync for AMRessource {}

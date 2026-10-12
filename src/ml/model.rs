@@ -34,7 +34,7 @@ impl FlappyNet {
         let device = get_global_device();
         Self {
             activation: Relu::new(),
-            linear1: LinearConfig::new(8, 4).init(&device),
+            linear1: LinearConfig::new(6, 4).init(&device),
             linear2: LinearConfig::new(4, 1).init(&device),
         }
     }
@@ -222,7 +222,7 @@ impl FlappyGradientAgent {
 
         let states =
             Tensor::<MyAutodiffBackend, 1>::from_floats(flat_states.as_slice(), &self.device)
-                .reshape([n, 8]);
+                .reshape([n, 6]);
 
         // 1.0 = jumped, 0.0 = did nothing (requires Action::Jump as i64 == 1)
         let action_idx: Vec<i64> = self.state.episode.iter().map(|s| s.action as i64).collect();
@@ -283,7 +283,7 @@ impl FlappyGradientAgent {
     fn state_to_tensor(&self) -> Tensor<MyAutodiffBackend, 2> {
         let s = self.state.current_gamestate.unwrap();
         Tensor::<MyAutodiffBackend, 1>::from_floats(s.to_array().as_slice(), &self.device)
-            .reshape([1, 8])
+            .reshape([1, 6])
     }
 }
 
