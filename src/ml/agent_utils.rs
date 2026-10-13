@@ -159,11 +159,11 @@ impl AgentDefault {
 impl Default for RewardPrizes {
     fn default() -> Self {
         Self {
-            dying: -10.,
+            dying: -5.,
             pipe_death: -0.1,
 
-            pipe_cleared: 5.,
-            alive: 0.1,
+            pipe_cleared: 15.,
+            alive: 0.2,
             jump_cost: 0.0,
         }
     }

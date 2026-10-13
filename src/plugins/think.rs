@@ -2,9 +2,8 @@ use super::pipes::*;
 use crate::ml::agent_utils::{Action, GameStateFeatures, GradedRunners, RewardPrizes};
 use crate::ml::model::FlappyNet;
 use crate::player::{
-    Bird, BirdInventory, BirdJump, GameSets, Lifetime, PipeBottom, PipeTop, Player, Velocity,
+    Bird, BirdInventory, BirdJump, GameSets, Lifetime, Pipe, PipeBottom, PipeTop, Player, Velocity,
 };
-
 use crate::RegistrySnapshot;
 use crate::{AMRessource, ReplacementState};
 use itertools::{Itertools, MinMaxResult};
@@ -224,15 +223,22 @@ pub fn run_forwards_and_optims(
     mut registry: ResMut<DeadBirdRegistry>,
     mut am_ressource: NonSendMut<AMRessource>,
     mut live_inventory: ResMut<BirdInventory>,
+    pipes: Query<(Entity, &Transform), With<Pipe>>,
+
+    mut commands: Commands,
 ) {
+    thread_local! {
+        static DONE: Rc<Cell<Option<bool>>> = Rc::new(Cell::new(None));
+    }
+
+    let done = DONE.with(Rc::clone);
+    let done_task = done.clone();
+
     let replacement = am_ressource.replacement.clone();
     let current_state = am_ressource.replacement.borrow().clone();
-    let done: Rc<Cell<Option<bool>>> = Rc::new(Cell::new(None));
-    let done_task = done.clone();
+
     match current_state {
         ReplacementState::Idle => {
-            // ── 1. Pick the best agent (cheap, CPU-only — stays sync) ──
-
             let graded: GradedRunners =
                 match am_ressource
                     .agent_manager
@@ -263,7 +269,6 @@ pub fn run_forwards_and_optims(
             let a = am_ressource.agent_manager.inner[&graded.best].clone();
             let i = a.borrow().state.episode.len() - 1; // borrow(), not borrow_mut() — read-only
             a.borrow_mut().state.episode[i].reward = RewardPrizes::default().pipe_death;
-            drop(a);
             let a = am_ressource.agent_manager.inner[&graded.best].clone();
             let replacement_task = replacement.clone();
             spawn_local(async move {
@@ -305,8 +310,13 @@ pub fn run_forwards_and_optims(
                     }
 
                     spawn_local(async move {
+                        let model = best_model.borrow().clone(); // guard dropped at end of this statement
+
                         for handle in other_handles.iter() {
-                            *handle.borrow_mut() = best_model.borrow().clone();
+                            if Rc::ptr_eq(handle, &best_model) {
+                                continue; // already has this model
+                            }
+                            *handle.borrow_mut() = model.clone();
                         }
                         done_task.set(Some(true));
                     });
@@ -316,7 +326,7 @@ pub fn run_forwards_and_optims(
                     let registry_snapshot: RegistrySnapshot = registry.0.clone();
                     let replacement_task = replacement.clone();
                     *replacement_task.borrow_mut() = ReplacementState::Ready(registry_snapshot);
-                    drop(done_task)
+                    done.set(None);
                 }
             }
         }
@@ -327,9 +337,9 @@ pub fn run_forwards_and_optims(
         }
     }
     //clean slate
-    // for (e, _) in pipes.iter() {
-    //    commands.entity(e).despawn();
-    // }
+    for (e, _) in pipes.iter() {
+        commands.entity(e).despawn();
+    }
 }
 pub fn no_birds_in_main_system(
     alive: Query<&Bird>,
@@ -339,7 +349,7 @@ pub fn no_birds_in_main_system(
 ) -> bool {
     let mut no_actions_in_flight = true;
 
-    for (id, agent) in am_ressource.agent_manager.inner.iter() {
+    for (_, agent) in am_ressource.agent_manager.inner.iter() {
         match agent.try_borrow() {
             Ok(agent) => {
                 let inflight = *agent.action_inflight.borrow();
