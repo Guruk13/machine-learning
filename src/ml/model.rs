@@ -131,8 +131,7 @@ impl FlappyGradientAgent {
     pub fn select_action(&mut self) -> Action {
         // Pick up a result that finished since the last call.
         if let Some(action) = self.pending_action.borrow_mut().take() {
-            //#[cfg(target_arch = "wasm32")]
-            //web_sys::console::log_1(&format!("{:?}", action).into());
+            web_sys::console::log_1(&format!("{:?}", action).into());
             self.last_action = action;
         }
 

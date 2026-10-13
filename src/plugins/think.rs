@@ -2,7 +2,7 @@ use super::pipes::*;
 use crate::ml::agent_utils::{Action, GameStateFeatures, GradedRunners, RewardPrizes};
 use crate::ml::model::FlappyNet;
 use crate::player::{
-    Bird, BirdInventory, BirdJump, GameSets, Lifetime, Pipe, PipeBottom, PipeTop, Player, Velocity,
+    Bird, BirdInventory, BirdJump, GameSets, Lifetime, PipeBottom, PipeTop, Player, Velocity,
 };
 
 use crate::RegistrySnapshot;
@@ -53,7 +53,7 @@ fn think(
     mut registry: ResMut<DeadBirdRegistry>,
 ) {
     let all_birds: Vec<_> = birds.iter().collect();
-    for (entity, bird, transform, velocity, bird_aabb, life) in &all_birds {
+    for (entity, bird, transform, velocity, bird_aabb, _) in &all_birds {
         let calculated_velocity = Vec2::new(PIPE_SPEED, velocity.0).to_angle();
         let bird_x = transform.translation.x;
         let bird_left_edge = bird_x + bird_aabb.half_extents.x;
@@ -158,7 +158,7 @@ fn think(
             );
             let center = (lo + hi) / 2.0;
             let half_gap = (hi - lo) / 2.0;
-            let dist_ratio = ((state.bird_y - center).abs() / half_gap);
+            let dist_ratio = (state.bird_y - center).abs() / half_gap;
             reward += RewardPrizes::default().alive * (1.0 - dist_ratio); // continuous, not binary
         } else {
             let half_canvas = CANVAS_SIZE[1] / 2.0;
@@ -267,9 +267,9 @@ pub fn run_forwards_and_optims(
             let a = am_ressource.agent_manager.inner[&graded.best].clone();
             let replacement_task = replacement.clone();
             spawn_local(async move {
-                let loss: f32 = a.borrow_mut().update_policy().await;
+                let _loss: f32 = a.borrow_mut().update_policy().await;
                 #[cfg(target_arch = "wasm32")]
-                web_sys::console::log_1(&format!("descend loss: {:?}", loss).into());
+                web_sys::console::log_1(&format!("descend loss: {:?}", _loss).into());
 
                 *replacement_task.borrow_mut() = ReplacementState::Replacing(graded);
             });
@@ -348,7 +348,7 @@ pub fn no_birds_in_main_system(
                     break;
                 }
             }
-            Err(e) => {
+            Err(_e) => {
                 no_actions_in_flight = false;
                 #[cfg(target_arch = "wasm32")]
                 web_sys::console::log_1(
