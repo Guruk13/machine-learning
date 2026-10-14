@@ -61,10 +61,12 @@ pub struct GameStateFeatures {
     pub next_pipe_bottom_y: f32,
     pub second_top_y: f32,
     pub second_bot_y: f32,
+    pub remaining_bot_x: f32,
+    pub remaining_top_x: f32,
 }
 impl GameStateFeatures {
     /// Returns a flat [6] array — handy when building batch tensors manually.
-    pub fn to_array(&self) -> [f32; 6] {
+    pub fn to_array(&self) -> [f32; 8] {
         [
             self.bird_y,
             self.bird_speed, // multiply speed to make more noise in the tensors
@@ -72,6 +74,8 @@ impl GameStateFeatures {
             self.next_pipe_bottom_y,
             self.second_bot_y,
             self.second_top_y,
+            self.remaining_bot_x,
+            self.remaining_top_x,
         ]
     }
 }
@@ -159,11 +163,11 @@ impl AgentDefault {
 impl Default for RewardPrizes {
     fn default() -> Self {
         Self {
-            dying: -5.,
+            dying: -10.,
             pipe_death: -0.1,
 
-            pipe_cleared: 15.,
-            alive: 0.2,
+            pipe_cleared: 10.,
+            alive: 0.1,
             jump_cost: 0.0,
         }
     }

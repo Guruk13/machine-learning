@@ -1,12 +1,12 @@
 use super::pipes::*;
-use crate::ml::agent_utils::{Action, GameStateFeatures, GradedRunners, RewardPrizes};
+use crate::ml::agent_utils::{Action, GameStateFeatures, RewardPrizes};
 use crate::ml::model::FlappyNet;
 use crate::player::{
     Bird, BirdInventory, BirdJump, GameSets, Lifetime, Pipe, PipeBottom, PipeTop, Player, Velocity,
 };
 use crate::RegistrySnapshot;
 use crate::{AMRessource, ReplacementState};
-use itertools::{Itertools, MinMaxResult};
+use std::collections::HashMap;
 use wasm_bindgen_futures::spawn_local;
 
 use bevy::camera::primitives::Aabb;
@@ -111,12 +111,12 @@ fn think(
             extract_bottom_pipe(bots_ahead.get(bot_active + 1).map(|x| x), bird_left_edge);
 
         let state = GameStateFeatures {
-            bird_y: transform.translation.y,
-            bird_speed: calculated_velocity * 100.,
+            bird_y: transform.translation.y * 10.0,
+            bird_speed: calculated_velocity,
             next_pipe_top_y: nearest_top.edge_y,
             next_pipe_bottom_y: nearest_bot.edge_y,
-            second_top_y: second_top.edge_y,
-            second_bot_y: second_bot.edge_y,
+            remaining_bot_x: nearest_bot.remaining_x,
+            remaining_top_x: nearest_top.remaining_x,
         };
 
         //for debugging purposes only
@@ -150,32 +150,18 @@ fn think(
             agent.state.score = bird.score;
         }
 
-        if nearest_top.exists || nearest_bot.exists {
-            let (lo, hi) = (
-                state.next_pipe_top_y.min(state.next_pipe_bottom_y),
-                state.next_pipe_top_y.max(state.next_pipe_bottom_y),
-            );
-            let center = (lo + hi) / 2.0;
-            let half_gap = (hi - lo) / 2.0;
+        let alive = RewardPrizes::default().alive;
+
+        reward += if nearest_top.exists || nearest_bot.exists {
+            let center = (state.next_pipe_top_y + state.next_pipe_bottom_y) / 2.0;
+            let half_gap = (state.next_pipe_top_y - state.next_pipe_bottom_y).abs() / 2.0;
             let dist_ratio = (state.bird_y - center).abs() / half_gap;
-            reward += RewardPrizes::default().alive * (1.0 - dist_ratio); // continuous, not binary
+            (alive * (1.0 - dist_ratio)).min(0.01)
+        } else if state.bird_y.abs() <= 3.0 * PLAYER_SIZE {
+            alive // inside the sweet spot
         } else {
-            let half_canvas = CANVAS_SIZE[1] / 2.0;
-            let sweet_half_height = 0.1 * PLAYER_SIZE; // 3*PLAYER_SIZE total band, centered on 0
-            let dist_from_center = state.bird_y.abs();
-
-            let alive = RewardPrizes::default().alive;
-
-            reward += if dist_from_center <= sweet_half_height {
-                alive // inside the sweet spot: full reward
-            } else {
-                // linearly decay from `alive` at the sweet-spot edge to 0 at the canvas edge
-                let decay_range = half_canvas - sweet_half_height;
-                let dist_past_sweet = dist_from_center - sweet_half_height;
-                let falloff = (1.0 - dist_past_sweet / decay_range).max(0.0);
-                alive * falloff
-            };
-        }
+            alive * 0.1
+        };
         let action = agent.select_action();
         //[...] for the sacred icon has been found
         #[cfg(target_arch = "wasm32")]
@@ -224,12 +210,14 @@ pub fn run_forwards_and_optims(
     mut am_ressource: NonSendMut<AMRessource>,
     mut live_inventory: ResMut<BirdInventory>,
     pipes: Query<(Entity, &Transform), With<Pipe>>,
-
     mut commands: Commands,
 ) {
     thread_local! {
         static DONE: Rc<Cell<Option<bool>>> = Rc::new(Cell::new(None));
+        // incremented after each successful batch of descent
+        static EPOCH: Cell<u32> = Cell::new(0);
     }
+    const CULL_EVERY: u32 = 10;
 
     let done = DONE.with(Rc::clone);
     let done_task = done.clone();
@@ -239,84 +227,109 @@ pub fn run_forwards_and_optims(
 
     match current_state {
         ReplacementState::Idle => {
-            let graded: GradedRunners =
-                match am_ressource
-                    .agent_manager
-                    .inner
-                    .iter()
-                    .minmax_by(|(_, a), (_, b)| {
-                        a.borrow_mut()
-                            .stats
-                            .total_score
-                            .partial_cmp(&b.borrow_mut().stats.total_score)
-                            .unwrap()
-                    }) {
-                    MinMaxResult::NoElements => {
-                        // empty map — fall back to some sentinel, adjust as needed
-                        panic!("agent_manager.inner is empty")
-                    }
-                    MinMaxResult::OneElement(_) => {
-                        panic!("must have at least two agents ")
-                    }
-                    MinMaxResult::MinMax((worst_key, _), (best_key, _)) => GradedRunners {
-                        best: *best_key,
-                        worst: *worst_key,
-                    },
-                };
+            if am_ressource.agent_manager.inner.len() < 2 {
+                panic!("must have at least two agents");
+            }
 
-            *replacement.borrow_mut() = ReplacementState::Descending(graded.clone());
-            //since model is 1-2 frames behind , the death reward must be forcefully recorded
-            let a = am_ressource.agent_manager.inner[&graded.best].clone();
-            let i = a.borrow().state.episode.len() - 1; // borrow(), not borrow_mut() — read-only
-            a.borrow_mut().state.episode[i].reward = RewardPrizes::default().pipe_death;
-            let a = am_ressource.agent_manager.inner[&graded.best].clone();
+            *replacement.borrow_mut() = ReplacementState::Descending;
+
+            // every agent descends on its own episode
+            let agents: Vec<_> = am_ressource.agent_manager.inner.values().cloned().collect();
             let replacement_task = replacement.clone();
+            let registry_snapshot: RegistrySnapshot = registry.0.clone();
             spawn_local(async move {
-                let _loss: f32 = a.borrow_mut().update_policy().await;
-                #[cfg(target_arch = "wasm32")]
-                web_sys::console::log_1(&format!("descend loss: {:?}", _loss).into());
+                let mut _total = 0.0f32;
+                let _n = agents.len() as f32;
+                for a in agents.iter() {
+                    if a.borrow().state.episode.is_empty() {
+                        continue;
+                    }
+                    _total += a.borrow_mut().update_policy().await;
+                }
 
-                *replacement_task.borrow_mut() = ReplacementState::Replacing(graded);
+                // descent batch succeeded -> next epoch
+                EPOCH.with(|e| e.set(e.get() + 1));
+
+                let epoch = EPOCH.with(|e| e.get());
+                let cull_epoch = epoch > 0 && epoch % CULL_EVERY == 0;
+                if !cull_epoch {
+                    //only a descending run things are ready
+
+                    let replacement_task = replacement.clone();
+                    *replacement_task.borrow_mut() = ReplacementState::Ready(registry_snapshot);
+                } else {
+                    *replacement_task.borrow_mut() = ReplacementState::Replacing;
+                }
             });
         }
 
-        ReplacementState::Descending(_) => {
+        ReplacementState::Descending => {
             // Please standby
         }
 
-        ReplacementState::Replacing(graded) => {
+        ReplacementState::Replacing => {
             match done_task.get() {
                 None => {
+                    // (target handle, source handle)
+                    let mut copies: Vec<(Rc<RefCell<FlappyNet>>, Rc<RefCell<FlappyNet>>)> =
+                        Vec::new();
+                    let bottom: HashSet<u32>;
+                    let mut middle_sources: HashMap<u32, Rc<RefCell<FlappyNet>>> = HashMap::new();
+
                     done_task.set(Some(false));
-                    let best_model = am_ressource.agent_manager.inner[&graded.best]
-                        .borrow_mut()
-                        .flappy
-                        .clone();
-                    let mut other_handles: Vec<Rc<RefCell<FlappyNet>>> = Vec::new();
-                    let mut to_remove: Option<u32> = None;
+                    // rank worst -> best (stats are still intact: reset happens below)
+                    let mut ranked: Vec<(u32, f32)> = am_ressource
+                        .agent_manager
+                        .inner
+                        .iter()
+                        .map(|(k, a)| (*k, a.borrow().stats.total_score))
+                        .collect();
+                    ranked
+                        .sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
+
+                    let n = ranked.len();
+                    let third = (n / 3).max(1);
+                    let top_start = n - third;
+                    let mid_start = top_start.saturating_sub(third);
+
+                    let keys: Vec<u32> = ranked.iter().map(|(k, _)| *k).collect();
+                    let top: Vec<u32> = keys[top_start..].iter().rev().copied().collect(); // best-first
+                    let middle: Vec<u32> = keys[mid_start..top_start].to_vec();
+                    bottom = keys[..mid_start].iter().copied().collect();
+
+                    // middle third <- clones of top third (round-robin)
+                    for (i, k) in middle.iter().enumerate() {
+                        let src_key = top[i % top.len()];
+                        let src = am_ressource.agent_manager.inner[&src_key]
+                            .borrow()
+                            .flappy
+                            .clone();
+                        middle_sources.insert(*k, src);
+                    }
+
+                    let mut to_remove: Vec<u32> = Vec::new();
                     for (key, agent) in am_ressource.agent_manager.inner.iter() {
                         agent.borrow_mut().agent_clear_episode();
 
-                        if *key == graded.worst {
-                            //this is the new innovator agent , it is out of replacement and will be assigned an agent in the next run
-                            to_remove = Some(*key);
+                        if bottom.contains(key) {
+                            // removed, new agents are created in the next run
+                            to_remove.push(*key);
                             continue;
                         }
                         agent.borrow_mut().new_model_reset_stats();
-                        other_handles.push(agent.borrow().flappy.clone());
+
+                        if let Some(src) = middle_sources.get(key) {
+                            copies.push((agent.borrow().flappy.clone(), src.clone()));
+                        }
                     }
-                    if let Some(key) = to_remove {
+                    for key in to_remove {
                         am_ressource.agent_manager.inner.remove(&key);
                     }
 
                     spawn_local(async move {
-                        let model = best_model.borrow().clone(); // guard dropped at end of this statement
-
-                        for handle in other_handles.iter() {
-                            if Rc::ptr_eq(handle, &best_model) {
-                                continue; // already has this model
-                            }
-                            *handle.borrow_mut() = model.clone();
+                        for (target, source) in copies.iter() {
+                            let model = source.borrow().clone(); // guard dropped at end of statement
+                            *target.borrow_mut() = model;
                         }
                         done_task.set(Some(true));
                     });
@@ -330,13 +343,15 @@ pub fn run_forwards_and_optims(
                 }
             }
         }
+
         ReplacementState::Ready(finalized) => {
             live_inventory.0 = finalized.clone();
             registry.0.clear();
             *replacement.borrow_mut() = ReplacementState::Idle;
         }
     }
-    //clean slate
+
+    // clean slate
     for (e, _) in pipes.iter() {
         commands.entity(e).despawn();
     }
@@ -398,7 +413,7 @@ fn extract_top_pipe(top: Option<&(&GlobalTransform, &Aabb)>, bird_left_edge: f32
         None => PipeEdgeInfo {
             exists: false,
             edge_y: CANVAS_SIZE[1] / 2.0 + 1.0,
-            remaining_x: -PLAYER_SIZE / 2.0 - 30.0,
+            remaining_x: -1.0,
         },
     }
 }
@@ -416,7 +431,7 @@ fn extract_bottom_pipe(
         None => PipeEdgeInfo {
             exists: false,
             edge_y: -CANVAS_SIZE[1] / 2.0 - 1.0,
-            remaining_x: -PLAYER_SIZE / 2.0 - 30.0,
+            remaining_x: -1.0,
         },
     }
 }

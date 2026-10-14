@@ -1,7 +1,6 @@
 use burn::backend::wgpu::Wgpu;
 use burn::backend::Autodiff;
 
-use crate::ml::agent_utils::GradedRunners;
 use crate::ml::multiagent::AgentManager;
 use std::cell::RefCell;
 use std::collections::HashSet;
@@ -20,16 +19,15 @@ pub struct AMRessource {
     pub agent_manager: AgentManager,
     // Type here must match whatever `registry.0` / `live_inventory.0`
     // actually are — swap `RegistrySnapshot` for the real type.
-    pub replacement: Rc<RefCell<ReplacementState<RegistrySnapshot>>>,
+    pub replacement: Rc<RefCell<ReplacementState>>,
 }
 
-// ── shared state, single source of truth (see previous message) ─────────
-#[derive(Debug, Clone)]
-pub enum ReplacementState<T> {
+#[derive(Clone)]
+pub enum ReplacementState {
     Idle,
-    Descending(GradedRunners),
-    Replacing(GradedRunners),
-    Ready(T),
+    Descending,
+    Replacing,
+    Ready(RegistrySnapshot),
 }
 type MyBackend = Wgpu<f32, i32>;
 pub type MyAutodiffBackend = Autodiff<MyBackend>;

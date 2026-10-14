@@ -9,10 +9,8 @@ log = { version = "0.4", features = ["max_level_debug", "release_max_level_warn"
 tracing = { version = "0.1", features = ["max_level_debug", "release_max_level_warn"] }
 burn = { version = "0.21", features = ["autodiff", "wgpu", "cubecl"], default-features = false }
 rand = { version = "0.10.1", default-features = false, features = ["std", "std_rng", "thread_rng"] }
-#getrandom = { version = "0.3", features = ["wasm_js"] }
 uuid = { version = "1.23.2", features = ["js"] }
 web-sys = { version = "0.3.104", features = ["console"] }
-itertools = "0.15.0"
 js-sys = "0.3.105"
 wasm-bindgen = "0.2.122"
 wasm-bindgen-futures = "0.4"
@@ -20,6 +18,3 @@ wasm-bindgen-futures = "0.4"
 getrandom = { version = "0.4", features = ["wasm_js"] }
 uuid = { version = "1.23.2", features = ["js"] }
 wasm-bindgen-futures = "0.4"
-
-[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-pollster = "0.4"

@@ -237,7 +237,7 @@ fn respawn_on_endgame(
 }
 
 fn spawn_birds(mut commands: Commands, asset_server: Res<AssetServer>) {
-    for n in 0..7 {
+    for n in 0..9 {
         commands.spawn(Bird::new(&*asset_server, false, n));
     }
 }
