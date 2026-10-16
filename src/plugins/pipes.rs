@@ -7,8 +7,8 @@ pub const CANVAS_SIZE: Vec2 = Vec2::new(480., 270.);
 
 pub const PLAYER_SIZE: f32 = 25.0;
 pub const PIPE_SIZE: Vec2 = Vec2::new(32., CANVAS_SIZE.y);
-pub const GAP_SIZE: f32 = 100.0;
-pub const PIPE_SPEED: f32 = 200.0;
+pub const GAP_SIZE: f32 = 150.0;
+pub const PIPE_SPEED: f32 = 150.0;
 
 pub struct PipePlugin;
 

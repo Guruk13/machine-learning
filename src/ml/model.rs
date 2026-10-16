@@ -34,8 +34,8 @@ impl FlappyNet {
         let device = get_global_device();
         Self {
             activation: Relu::new(),
-            linear1: LinearConfig::new(8, 4).init(&device),
-            linear2: LinearConfig::new(4, 1).init(&device),
+            linear1: LinearConfig::new(5, 8).init(&device),
+            linear2: LinearConfig::new(8, 1).init(&device),
         }
     }
 
@@ -115,6 +115,10 @@ impl FlappyGradientAgent {
     }
     pub fn agent_clear_episode(&mut self) {
         self.state = AgentState::new();
+    }
+
+    pub fn reset_score(&mut self) {
+        self.stats.total_score = 0.0;
     }
 
     pub fn agent_finish_episode(&mut self) {
@@ -221,7 +225,7 @@ impl FlappyGradientAgent {
 
         let states =
             Tensor::<MyAutodiffBackend, 1>::from_floats(flat_states.as_slice(), &self.device)
-                .reshape([n, 8]);
+                .reshape([n, 5]);
 
         // 1.0 = jumped, 0.0 = did nothing (requires Action::Jump as i64 == 1)
         let action_idx: Vec<i64> = self.state.episode.iter().map(|s| s.action as i64).collect();
@@ -252,7 +256,7 @@ impl FlappyGradientAgent {
         // ── e. Loss = −mean( log π(a|s) · G ) − β·H[π] ──────────────────────
         // NOTE: Bernoulli entropy maxes at ln2 ≈ 0.69; 0.3 is a strong
         // coefficient. Try 0.01–0.05 if the policy stays near 50/50.
-        let loss = (selected_log_probs * returns_t).mean().neg() - entropy.mul_scalar(0.3f32);
+        let loss = (selected_log_probs * returns_t).mean().neg() - entropy.mul_scalar(0.01f32);
 
         let loss_scalar: f32 = loss
             .clone()
@@ -282,7 +286,7 @@ impl FlappyGradientAgent {
     fn state_to_tensor(&self) -> Tensor<MyAutodiffBackend, 2> {
         let s = self.state.current_gamestate.unwrap();
         Tensor::<MyAutodiffBackend, 1>::from_floats(s.to_array().as_slice(), &self.device)
-            .reshape([1, 8])
+            .reshape([1, 5])
     }
 }
 

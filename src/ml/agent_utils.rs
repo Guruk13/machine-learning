@@ -55,25 +55,20 @@ impl AgentStats {
 
 #[derive(Reflect, Component, Debug, Clone, Copy, Default)]
 pub struct GameStateFeatures {
-    pub bird_y: f32,
     pub bird_speed: f32,
     pub next_pipe_top_y: f32,
     pub next_pipe_bottom_y: f32,
-    pub second_top_y: f32,
-    pub second_bot_y: f32,
+
     pub remaining_bot_x: f32,
     pub remaining_top_x: f32,
 }
 impl GameStateFeatures {
     /// Returns a flat [6] array — handy when building batch tensors manually.
-    pub fn to_array(&self) -> [f32; 8] {
+    pub fn to_array(&self) -> [f32; 5] {
         [
-            self.bird_y,
             self.bird_speed, // multiply speed to make more noise in the tensors
             self.next_pipe_top_y,
             self.next_pipe_bottom_y,
-            self.second_bot_y,
-            self.second_top_y,
             self.remaining_bot_x,
             self.remaining_top_x,
         ]
@@ -146,10 +141,10 @@ impl AgentDefault {
         let r2 = js_sys::Math::random();
 
         // gamma: random pick from {0.90, 0.91, ..., 0.99}
-        let gamma = (70 + (r1 * 29.0).floor() as u32) as f32 / 100.0;
+        let gamma = (90 + (r1 * 9.0).floor() as u32) as f32 / 100.0;
 
         // learning_rate: random pick from curated values
-        const LEARNING_RATES: [f64; 2] = [1e-4, 1e-3];
+        const LEARNING_RATES: [f64; 3] = [1e-4, 1e-3, 5e-5];
         let idx = (r2 * LEARNING_RATES.len() as f64).floor() as usize;
         let learning_rate = LEARNING_RATES[idx];
 
@@ -164,7 +159,7 @@ impl Default for RewardPrizes {
     fn default() -> Self {
         Self {
             dying: -10.,
-            pipe_death: -0.1,
+            pipe_death: -5.,
 
             pipe_cleared: 10.,
             alive: 0.1,

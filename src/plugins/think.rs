@@ -43,7 +43,7 @@ fn think(
     mut commands: Commands,
     birds: Query<
         (Entity, &Bird, &Transform, &Velocity, &Aabb, &Lifetime),
-        (With<Bird>, Without<Player>),
+        (With<Bird>, Without<Player>, Changed<Transform>),
     >,
 
     pipe_tops: Query<(&GlobalTransform, &Aabb), With<PipeTop>>,
@@ -52,7 +52,7 @@ fn think(
     mut registry: ResMut<DeadBirdRegistry>,
 ) {
     let all_birds: Vec<_> = birds.iter().collect();
-    for (entity, bird, transform, velocity, bird_aabb, _) in &all_birds {
+    for (entity, bird, transform, velocity, bird_aabb, lifetime) in &all_birds {
         let calculated_velocity = Vec2::new(PIPE_SPEED, velocity.0).to_angle();
         let bird_x = transform.translation.x;
         let bird_left_edge = bird_x + bird_aabb.half_extents.x;
@@ -81,37 +81,21 @@ fn think(
                 .unwrap()
         });
 
-        // Pipe 0 well past check — independent per top/bottom
-        let top0_well_past = tops_ahead
-            .first()
-            .map(|(t, aabb)| {
-                bird_left_edge - (t.translation().x + aabb.half_extents.x) > PLAYER_SIZE
-            })
-            .unwrap_or(true);
-
-        let bot0_well_past = bots_ahead
-            .first()
-            .map(|(t, aabb)| {
-                bird_left_edge - (t.translation().x + aabb.half_extents.x) > PLAYER_SIZE
-            })
-            .unwrap_or(true);
-
-        let top_active = if top0_well_past { 1 } else { 0 };
-        let bot_active = if bot0_well_past { 1 } else { 0 };
-
         // Active pipes
-        let nearest_top = extract_top_pipe(tops_ahead.get(top_active).map(|x| x), bird_left_edge);
-        let nearest_bot =
-            extract_bottom_pipe(bots_ahead.get(bot_active).map(|x| x), bird_left_edge);
-
-        // Lookahead pipes (next after active)
-        let second_top =
-            extract_top_pipe(tops_ahead.get(top_active + 1).map(|x| x), bird_left_edge);
-        let second_bot =
-            extract_bottom_pipe(bots_ahead.get(bot_active + 1).map(|x| x), bird_left_edge);
+        let nearest_top = extract_pipe(
+            tops_ahead.first().map(|x| x),
+            PipeKind::Top,
+            transform.translation.y,
+            bird_left_edge,
+        );
+        let nearest_bot = extract_pipe(
+            bots_ahead.first().map(|x| x),
+            PipeKind::Bottom,
+            transform.translation.y,
+            bird_left_edge,
+        );
 
         let state = GameStateFeatures {
-            bird_y: transform.translation.y * 10.0,
             bird_speed: calculated_velocity,
             next_pipe_top_y: nearest_top.edge_y,
             next_pipe_bottom_y: nearest_bot.edge_y,
@@ -136,7 +120,7 @@ fn think(
                 RewardPrizes::default().dying
             }
         } else {
-            RewardPrizes::default().alive * (agent.state.score as f32).powi(2).max(1.0)
+            0.0
         };
 
         /*let mut reward: f32 = if bird.dead && !bird.pipe_death {
@@ -152,23 +136,32 @@ fn think(
 
         let alive = RewardPrizes::default().alive;
 
-        reward += if nearest_top.exists || nearest_bot.exists {
-            let center = (state.next_pipe_top_y + state.next_pipe_bottom_y) / 2.0;
-            let half_gap = (state.next_pipe_top_y - state.next_pipe_bottom_y).abs() / 2.0;
-            let dist_ratio = (state.bird_y - center).abs() / half_gap;
-            (alive * (1.0 - dist_ratio)).min(0.01)
-        } else if state.bird_y.abs() <= 3.0 * PLAYER_SIZE {
-            alive // inside the sweet spot
-        } else {
-            alive * 0.1
+        let in_zone = {
+            let lo = if nearest_bot.exists {
+                state.next_pipe_bottom_y
+            } else {
+                -CANVAS_SIZE.y / 2.0 * 0.25
+            };
+            let hi = if nearest_top.exists {
+                state.next_pipe_top_y
+            } else {
+                CANVAS_SIZE.y / 2.0 * 0.25
+            };
+            (lo..=hi).contains(&transform.translation.y)
         };
+
+        if in_zone {
+            reward += alive;
+        }
+
         let action = agent.select_action();
         //[...] for the sacred icon has been found
         #[cfg(target_arch = "wasm32")]
         web_sys::console::log_1(&format!("{:?}", state).into());
+
         if bird.score > 15 {
             #[cfg(target_arch = "wasm32")]
-            web_sys::console::log_1(&format!("{:?}", agent.settings).into());
+            web_sys::console::log_1(&format!("{:?}, {:?}", bird.uid, lifetime).into());
             panic!("with it, our path is clear")
         }
 
@@ -176,6 +169,8 @@ fn think(
             Action::DoNothing => {}
             Action::Jump => {
                 if !bird.dead {
+                    #[cfg(target_arch = "wasm32")]
+                    web_sys::console::log_1(&format!("{:?} {:?}", bird.uid, lifetime.ticks).into());
                     commands.trigger(BirdJump(*entity));
                 }
             }
@@ -237,24 +232,31 @@ pub fn run_forwards_and_optims(
             let agents: Vec<_> = am_ressource.agent_manager.inner.values().cloned().collect();
             let replacement_task = replacement.clone();
             let registry_snapshot: RegistrySnapshot = registry.0.clone();
+            //
+            EPOCH.with(|e| e.set(e.get() + 1));
+            let epoch = EPOCH.with(|e| e.get());
+            let cull_epoch = epoch > 0 && epoch % CULL_EVERY == 0;
+
             spawn_local(async move {
                 let mut _total = 0.0f32;
                 let _n = agents.len() as f32;
-                for a in agents.iter() {
+                for (i, a) in agents.iter().enumerate() {
                     if a.borrow().state.episode.is_empty() {
                         continue;
                     }
+                    #[cfg(target_arch = "wasm32")]
+                    web_sys::console::log_1(
+                        &format!(" agent {:?} {:?}", i, a.borrow().state.episode.len()).into(),
+                    );
                     _total += a.borrow_mut().update_policy().await;
+
+                    a.borrow_mut().agent_clear_episode();
+                    if !cull_epoch {
+                        a.borrow_mut().reset_score();
+                    }
                 }
 
-                // descent batch succeeded -> next epoch
-                EPOCH.with(|e| e.set(e.get() + 1));
-
-                let epoch = EPOCH.with(|e| e.get());
-                let cull_epoch = epoch > 0 && epoch % CULL_EVERY == 0;
                 if !cull_epoch {
-                    //only a descending run things are ready
-
                     let replacement_task = replacement.clone();
                     *replacement_task.borrow_mut() = ReplacementState::Ready(registry_snapshot);
                 } else {
@@ -309,8 +311,6 @@ pub fn run_forwards_and_optims(
 
                     let mut to_remove: Vec<u32> = Vec::new();
                     for (key, agent) in am_ressource.agent_manager.inner.iter() {
-                        agent.borrow_mut().agent_clear_episode();
-
                         if bottom.contains(key) {
                             // removed, new agents are created in the next run
                             to_remove.push(*key);
@@ -403,35 +403,41 @@ struct PipeEdgeInfo {
     remaining_x: f32,
 }
 
-fn extract_top_pipe(top: Option<&(&GlobalTransform, &Aabb)>, bird_left_edge: f32) -> PipeEdgeInfo {
-    match top {
-        Some((t, aabb)) => PipeEdgeInfo {
-            exists: true,
-            edge_y: t.translation().y - aabb.half_extents.y,
-            remaining_x: (t.translation().x + aabb.half_extents.x) - bird_left_edge,
-        },
-        None => PipeEdgeInfo {
-            exists: false,
-            edge_y: CANVAS_SIZE[1] / 2.0 + 1.0,
-            remaining_x: -1.0,
-        },
-    }
+#[derive(Clone, Copy)]
+enum PipeKind {
+    Top,    // gap ceiling = bottom edge of the pipe
+    Bottom, // gap floor   = top edge of the pipe
 }
 
-fn extract_bottom_pipe(
-    bottom: Option<&(&GlobalTransform, &Aabb)>,
+fn extract_pipe(
+    pipe: Option<&(&GlobalTransform, &Aabb)>,
+    kind: PipeKind,
+    bird_y: f32,
     bird_left_edge: f32,
 ) -> PipeEdgeInfo {
-    match bottom {
-        Some((t, aabb)) => PipeEdgeInfo {
-            exists: true,
-            edge_y: t.translation().y + aabb.half_extents.y,
-            remaining_x: (t.translation().x + aabb.half_extents.x) - bird_left_edge,
-        },
+    match pipe {
+        Some((t, aabb)) => {
+            let center = t.translation() + Vec3::from(aabb.center);
+            let half = Vec3::from(aabb.half_extents) * t.compute_transform().scale;
+
+            let edge_y = match kind {
+                PipeKind::Top => center.y - half.y,
+                PipeKind::Bottom => center.y + half.y,
+            };
+
+            PipeEdgeInfo {
+                exists: true,
+                edge_y: edge_y - bird_y,
+                remaining_x: (center.x + half.x) - bird_left_edge,
+            }
+        }
         None => PipeEdgeInfo {
             exists: false,
-            edge_y: -CANVAS_SIZE[1] / 2.0 - 1.0,
-            remaining_x: -1.0,
+            edge_y: match kind {
+                PipeKind::Top => CANVAS_SIZE[1] / 2.0,     // canvas ceiling
+                PipeKind::Bottom => -CANVAS_SIZE[1] / 2.0, // canvas floor
+            } - bird_y,
+            remaining_x: CANVAS_SIZE[0],
         },
     }
 }
