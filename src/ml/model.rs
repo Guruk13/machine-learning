@@ -1,5 +1,7 @@
 use crate::staticdevice::get_global_device;
 
+use super::agent_utils::{Action, AgentDefault, AgentState, AgentStats, EpisodeStep};
+use burn::tensor::backend::Backend;
 use burn::{
     module::Module,
     nn::{Linear, LinearConfig, Relu},
@@ -7,13 +9,12 @@ use burn::{
     tensor::{activation::sigmoid, Tensor},
 };
 
-use super::agent_utils::{Action, AgentDefault, AgentState, AgentStats, EpisodeStep};
-
 use super::OPTIMIZER_EPSILON;
 use crate::MyAutodiffBackend;
 
 use burn::tensor::Device;
 use std::cell::RefCell;
+use std::marker::PhantomData;
 use std::rc::Rc;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::spawn_local;
@@ -21,21 +22,22 @@ use wasm_bindgen_futures::spawn_local;
 // ─────────────────────────────────────────────
 // POLICY NETWORK  (8 → 12 → 1, sigmoid output)
 // ─────────────────────────────────────────────
-#[derive(Module, Debug, Clone)]
-#[wasm_bindgen]
-pub struct FlappyNet {
+#[derive(Module, Debug)]
+pub struct FlappyNet<B: Backend> {
     linear1: Linear<MyAutodiffBackend>,
     linear2: Linear<MyAutodiffBackend>,
     activation: Relu,
+    _marker: PhantomData<B>,
 }
 
-impl FlappyNet {
+impl<B: Backend> FlappyNet<B> {
     pub fn new() -> Self {
         let device = get_global_device();
         Self {
             activation: Relu::new(),
             linear1: LinearConfig::new(5, 10).init(&device),
             linear2: LinearConfig::new(10, 1).init(&device),
+            _marker: PhantomData,
         }
     }
 
@@ -51,6 +53,7 @@ impl FlappyNet {
         sigmoid(self.linear2.forward(x))
     }
 }
+pub type Net = FlappyNet<MyAutodiffBackend>;
 
 // ─────────────────────────────────────────────
 // AGENT — plain REINFORCE, no critic
@@ -74,8 +77,8 @@ impl FlappyNet {
 // two gradient steps) from racing each other.
 #[wasm_bindgen]
 pub struct FlappyGradientAgent {
-    pub(crate) flappy: Rc<RefCell<FlappyNet>>,
-    pub(crate) optimizer: OptimizerAdaptor<Adam, FlappyNet, MyAutodiffBackend>,
+    flappy: Rc<RefCell<Net>>,
+    pub(crate) optimizer: OptimizerAdaptor<Adam, Net, MyAutodiffBackend>,
     pub(crate) device: Device<MyAutodiffBackend>,
     pub(crate) state: AgentState,
     pub(crate) stats: AgentStats,
@@ -105,9 +108,6 @@ impl FlappyGradientAgent {
         }
     }
 
-    pub fn set_model(&mut self, net: FlappyNet) {
-        *self.flappy.borrow_mut() = net;
-    }
     pub fn new_model_reset_stats(&mut self) {
         self.state = AgentState::new();
         self.stats.episodes = 0;
@@ -289,7 +289,16 @@ impl FlappyGradientAgent {
             .reshape([1, 5])
     }
 }
+impl FlappyGradientAgent {
+    // Rust-only: no attribute, so wasm_bindgen never inspects it
+    pub fn set_model(&mut self, net: Net) {
+        *self.flappy.borrow_mut() = net;
+    }
+    pub fn get_model(&self) -> Rc<RefCell<Net>> {
+        self.flappy.clone()
+    }
+}
 
-pub fn get_optimizer() -> OptimizerAdaptor<Adam, FlappyNet, MyAutodiffBackend> {
+pub fn get_optimizer() -> OptimizerAdaptor<Adam, Net, MyAutodiffBackend> {
     AdamConfig::new().with_epsilon(OPTIMIZER_EPSILON).init()
 }

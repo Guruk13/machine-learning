@@ -139,13 +139,13 @@ impl AgentDefault {
         let r2 = js_sys::Math::random();
 
         // gamma: random pick from {0.90, 0.91, ..., 0.99}
-        let gamma = (88 + (r1 * 12.0).floor() as u32) as f32 / 100.0;
+        let _gamma = (88 + (r1 * 12.0).floor() as u32) as f32 / 100.0;
         //
         // { gamma: 0.9, learning_rate: 0.001 }
         // learning_rate: random pick from curated values
         const LEARNING_RATES: [f64; 2] = [1e-3, 1e-4];
         let idx = (r2 * LEARNING_RATES.len() as f64).floor() as usize;
-        let learning_rate = LEARNING_RATES[idx];
+        let _learning_rate = LEARNING_RATES[idx];
 
         Self {
             gamma: 0.9,

@@ -1,6 +1,6 @@
 use super::pipes::*;
 use crate::ml::agent_utils::{Action, GameStateFeatures, RewardPrizes};
-use crate::ml::model::FlappyNet;
+use crate::ml::model::Net;
 use crate::player::{
     Bird, BirdInventory, BirdJump, GameSets, Lifetime, Opacity, Pipe, PipeBottom, PipeTop, Player,
     Velocity,
@@ -160,11 +160,15 @@ fn think(
 
         let action = agent.select_action();
 
-        if bird.score % 10 == 0 && bird.score != 0 {
+        if bird.score % 15 == 0 && bird.score != 0 {
             #[cfg(target_arch = "wasm32")]
             web_sys::console::log_1(
                 &format!("{:?} {:?}, {:?}", bird.score, bird.uid, agent.settings).into(),
             );
+            agent.state.score = bird.score;
+            agent.get_model();
+            //
+
             //panic!("with it, our path is clear")
         }
 
@@ -271,10 +275,9 @@ pub fn run_forwards_and_optims(
             match done_task.get() {
                 None => {
                     // (target handle, source handle)
-                    let mut copies: Vec<(Rc<RefCell<FlappyNet>>, Rc<RefCell<FlappyNet>>)> =
-                        Vec::new();
+                    let mut copies: Vec<(Rc<RefCell<Net>>, Rc<RefCell<Net>>)> = Vec::new();
                     let bottom: HashSet<u32>;
-                    let mut middle_sources: HashMap<u32, Rc<RefCell<FlappyNet>>> = HashMap::new();
+                    let mut middle_sources: HashMap<u32, Rc<RefCell<Net>>> = HashMap::new();
 
                     done_task.set(Some(false));
                     // rank worst -> best (stats are still intact: reset happens below)
@@ -306,8 +309,8 @@ pub fn run_forwards_and_optims(
                         let src_key = top[i % top.len()];
                         let src = am_ressource.agent_manager.inner[&src_key]
                             .borrow()
-                            .flappy
-                            .clone();
+                            .get_model();
+
                         middle_sources.insert(*k, src);
                     }
 
@@ -321,7 +324,7 @@ pub fn run_forwards_and_optims(
                         agent.borrow_mut().new_model_reset_stats();
 
                         if let Some(src) = middle_sources.get(key) {
-                            copies.push((agent.borrow().flappy.clone(), src.clone()));
+                            copies.push((agent.borrow().get_model(), src.clone()));
                         }
                     }
                     for key in to_remove {
@@ -366,7 +369,7 @@ pub fn no_birds_in_main_system(
 ) -> bool {
     let mut no_actions_in_flight = true;
 
-    for (id, agent) in am_ressource.agent_manager.inner.iter() {
+    for (_id, agent) in am_ressource.agent_manager.inner.iter() {
         match agent.try_borrow() {
             Ok(agent) => {
                 let inflight = *agent.action_inflight.borrow();
