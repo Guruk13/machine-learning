@@ -353,10 +353,15 @@ impl Material2d for BackgroundMaterial {
     }
 }
 
-fn enforce_bird_direction(birds: Query<(&mut Transform, &Velocity), With<Bird>>) {
-    for mut player in birds {
-        let calculated_velocity = Vec2::new(PIPE_SPEED, player.1 .0);
-        player.0.rotation = Quat::from_rotation_z(calculated_velocity.to_angle());
+fn enforce_bird_direction(
+    mut birds: Query<(&mut Transform, &Velocity, &mut Sprite, &Opacity), With<Bird>>,
+) {
+    for (mut transform, velocity, mut sprite, opacity) in &mut birds {
+        let calculated_velocity = Vec2::new(PIPE_SPEED, velocity.0);
+        transform.rotation = Quat::from_rotation_z(calculated_velocity.to_angle());
+
+        let alpha = (opacity.value / 100.0).clamp(0.0, 1.0);
+        sprite.color = sprite.color.with_alpha(alpha);
     }
 }
 

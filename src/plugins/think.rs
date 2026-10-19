@@ -2,7 +2,8 @@ use super::pipes::*;
 use crate::ml::agent_utils::{Action, GameStateFeatures, RewardPrizes};
 use crate::ml::model::FlappyNet;
 use crate::player::{
-    Bird, BirdInventory, BirdJump, GameSets, Lifetime, Pipe, PipeBottom, PipeTop, Player, Velocity,
+    Bird, BirdInventory, BirdJump, GameSets, Lifetime, Opacity, Pipe, PipeBottom, PipeTop, Player,
+    Velocity,
 };
 use crate::RegistrySnapshot;
 use crate::{AMRessource, ReplacementState};
@@ -41,8 +42,16 @@ impl Plugin for BrainPlugin {
 //Think Bird.  what will you have after 500 years ?
 fn think(
     mut commands: Commands,
-    birds: Query<
-        (Entity, &Bird, &Transform, &Velocity, &Aabb, &Lifetime),
+    mut birds: Query<
+        (
+            Entity,
+            &Bird,
+            &Transform,
+            &Velocity,
+            &Aabb,
+            &Lifetime,
+            &mut Opacity,
+        ),
         (With<Bird>, Without<Player>, Changed<Transform>),
     >,
 
@@ -51,8 +60,11 @@ fn think(
     mut am_ressource: NonSendMut<AMRessource>,
     mut registry: ResMut<DeadBirdRegistry>,
 ) {
-    let all_birds: Vec<_> = birds.iter().collect();
-    for (entity, bird, transform, velocity, bird_aabb, lifetime) in &all_birds {
+    let mut all_birds: Vec<_> = birds.iter_mut().collect();
+    //linear distribution
+    let n = all_birds.iter().count();
+    let denom = (n.saturating_sub(1)).max(1) as f32; // avoid divide by zero when N == 1
+    for (entity, bird, transform, velocity, bird_aabb, _lifetime, opacity) in all_birds.iter_mut() {
         let calculated_velocity = Vec2::new(PIPE_SPEED, velocity.0).to_angle();
         let bird_x = transform.translation.x;
         let bird_left_edge = bird_x + bird_aabb.half_extents.x;
@@ -103,13 +115,11 @@ fn think(
             remaining_top_x: nearest_top.remaining_x,
         };
 
-        //for debugging purposes only
-        commands.entity(*entity).insert(state);
         //get an agent , sync it with Bird's pov
         am_ressource.agent_manager.bind_agent(bird.uid, state);
         let mut agent = am_ressource.agent_manager.inner[&bird.uid].borrow_mut();
-
-        //forward
+        let rank = agent.stats.rank as f32;
+        opacity.value = 100.0 * (1.0 - rank / denom);
 
         //compute reward
         let mut reward: f32 = if bird.dead {
@@ -123,12 +133,6 @@ fn think(
             0.0
         };
 
-        /*let mut reward: f32 = if bird.dead && !bird.pipe_death {
-            //dying soon is shameful
-            RewardPrizes::default().dying * -(agent.state.score as i32) as f32
-        } else {
-            RewardPrizes::default().alive * (1 + bird.score) as f32
-        }; */
         if bird.score > agent.state.score {
             reward += RewardPrizes::default().pipe_cleared;
             agent.state.score = bird.score;
@@ -155,22 +159,19 @@ fn think(
         }
 
         let action = agent.select_action();
-        //[...] for the sacred icon has been found
-        #[cfg(target_arch = "wasm32")]
-        web_sys::console::log_1(&format!("{:?}", state).into());
 
-        if bird.score > 15 {
+        if bird.score % 10 == 0 && bird.score != 0 {
             #[cfg(target_arch = "wasm32")]
-            web_sys::console::log_1(&format!("{:?}, {:?}", bird.uid, lifetime).into());
-            panic!("with it, our path is clear")
+            web_sys::console::log_1(
+                &format!("{:?} {:?}, {:?}", bird.score, bird.uid, agent.settings).into(),
+            );
+            //panic!("with it, our path is clear")
         }
 
         match action {
             Action::DoNothing => {}
             Action::Jump => {
                 if !bird.dead {
-                    #[cfg(target_arch = "wasm32")]
-                    web_sys::console::log_1(&format!("{:?} {:?}", bird.uid, lifetime.ticks).into());
                     commands.trigger(BirdJump(*entity));
                 }
             }
@@ -181,13 +182,13 @@ fn think(
         }
 
         agent.record_step(action, reward);
-        #[cfg(target_arch = "wasm32")]
-        web_sys::console::log_1(&format!("{:?}", reward).into());
+        //#[cfg(target_arch = "wasm32")]
+        //web_sys::console::log_1(&format!("{:?}", reward).into());
     }
     //Gamestate has been processed , process bird's agent  stats
     let birds_dead: Vec<_> = all_birds
         .iter()
-        .filter(|(_, bird, _, _, _, _)| bird.dead == true)
+        .filter(|(_, bird, _, _, _, _, _)| bird.dead == true)
         .collect();
 
     // warn!("{:?}", birds_dead.len());
@@ -212,7 +213,7 @@ pub fn run_forwards_and_optims(
         // incremented after each successful batch of descent
         static EPOCH: Cell<u32> = Cell::new(0);
     }
-    const CULL_EVERY: u32 = 10;
+    const CULL_EVERY: u32 = 3;
 
     let done = DONE.with(Rc::clone);
     let done_task = done.clone();
@@ -240,14 +241,11 @@ pub fn run_forwards_and_optims(
             spawn_local(async move {
                 let mut _total = 0.0f32;
                 let _n = agents.len() as f32;
-                for (i, a) in agents.iter().enumerate() {
+                for (_, a) in agents.iter().enumerate() {
                     if a.borrow().state.episode.is_empty() {
                         continue;
                     }
-                    #[cfg(target_arch = "wasm32")]
-                    web_sys::console::log_1(
-                        &format!(" agent {:?} {:?}", i, a.borrow().state.episode.len()).into(),
-                    );
+
                     _total += a.borrow_mut().update_policy().await;
 
                     a.borrow_mut().agent_clear_episode();
@@ -288,6 +286,10 @@ pub fn run_forwards_and_optims(
                         .collect();
                     ranked
                         .sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
+
+                    am_ressource.agent_manager.inner.iter().for_each(|(k, a)| {
+                        a.borrow_mut().stats.rank = ranked[*k as usize].0;
+                    });
 
                     let n = ranked.len();
                     let third = (n / 3).max(1);
@@ -364,7 +366,7 @@ pub fn no_birds_in_main_system(
 ) -> bool {
     let mut no_actions_in_flight = true;
 
-    for (_, agent) in am_ressource.agent_manager.inner.iter() {
+    for (id, agent) in am_ressource.agent_manager.inner.iter() {
         match agent.try_borrow() {
             Ok(agent) => {
                 let inflight = *agent.action_inflight.borrow();
@@ -375,11 +377,11 @@ pub fn no_birds_in_main_system(
             }
             Err(_e) => {
                 no_actions_in_flight = false;
-                #[cfg(target_arch = "wasm32")]
-                web_sys::console::log_1(
-                    &format!("failed to borrow an agent , need to wait its action to be complete.")
-                        .into(),
-                );
+                //#[cfg(target_arch = "wasm32")]
+                //web_sys::console::log_1(
+                // &format!( "failed to borrow agent {:?} , need to wait its
+                // action to be complete.", id ) .into(),
+                //);
                 break;
             }
         }

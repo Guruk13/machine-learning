@@ -16,6 +16,10 @@ pub struct Player;
 
 #[derive(Component, Debug)]
 pub struct Dead;
+#[derive(Component, Debug)]
+pub struct Opacity {
+    pub value: f32,
+}
 
 #[derive(Event)]
 pub struct ScorePoint {
@@ -60,7 +64,7 @@ impl Bird {
         asset_server: &AssetServer,
         rand: bool,
         id: u32,
-    ) -> (Bird, Sprite, Transform, Lifetime) {
+    ) -> (Bird, Sprite, Transform, Lifetime, Opacity) {
         (
             Bird {
                 uid: id,
@@ -81,6 +85,7 @@ impl Bird {
                 Transform::from_xyz(-CANVAS_SIZE.x / 4.0, 0.0, 1.0)
             },
             Lifetime::default(),
+            Opacity { value: 100.0 },
         )
     }
 }

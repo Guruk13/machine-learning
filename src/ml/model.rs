@@ -34,8 +34,8 @@ impl FlappyNet {
         let device = get_global_device();
         Self {
             activation: Relu::new(),
-            linear1: LinearConfig::new(5, 8).init(&device),
-            linear2: LinearConfig::new(8, 1).init(&device),
+            linear1: LinearConfig::new(5, 10).init(&device),
+            linear2: LinearConfig::new(10, 1).init(&device),
         }
     }
 
@@ -135,7 +135,7 @@ impl FlappyGradientAgent {
     pub fn select_action(&mut self) -> Action {
         // Pick up a result that finished since the last call.
         if let Some(action) = self.pending_action.borrow_mut().take() {
-            web_sys::console::log_1(&format!("{:?}", action).into());
+            //    web_sys::console::log_1(&format!("{:?}", action).into());
             self.last_action = action;
         }
 

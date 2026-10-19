@@ -9,11 +9,7 @@ pub struct EpisodeStep {
     pub action: Action,
     pub reward: f32,
 }
-#[derive(Debug, Clone)]
-pub struct GradedRunners {
-    pub best: u32,
-    pub worst: u32,
-}
+
 /// Rolling statistics for one agent.
 #[derive(Debug, Copy, Clone)]
 pub struct AgentStats {
@@ -35,6 +31,7 @@ pub struct AgentStats {
     pub entropy_sum: f32,
     pub total_score: f32,
     pub total_episodes: u64,
+    pub rank: u32,
 }
 
 //Exponential Moving Average (EMA)
@@ -49,6 +46,7 @@ impl AgentStats {
             entropy_sum: 0.0,
             total_score: 0.,
             total_episodes: total_episodes.unwrap_or(0),
+            rank: 0,
         }
     }
 }
@@ -141,16 +139,17 @@ impl AgentDefault {
         let r2 = js_sys::Math::random();
 
         // gamma: random pick from {0.90, 0.91, ..., 0.99}
-        let gamma = (90 + (r1 * 9.0).floor() as u32) as f32 / 100.0;
-
+        let gamma = (88 + (r1 * 12.0).floor() as u32) as f32 / 100.0;
+        //
+        // { gamma: 0.9, learning_rate: 0.001 }
         // learning_rate: random pick from curated values
-        const LEARNING_RATES: [f64; 3] = [1e-4, 1e-3, 5e-5];
+        const LEARNING_RATES: [f64; 2] = [1e-3, 1e-4];
         let idx = (r2 * LEARNING_RATES.len() as f64).floor() as usize;
         let learning_rate = LEARNING_RATES[idx];
 
         Self {
-            gamma,
-            learning_rate,
+            gamma: 0.9,
+            learning_rate: 1e-3,
         }
     }
 }
@@ -158,10 +157,10 @@ impl AgentDefault {
 impl Default for RewardPrizes {
     fn default() -> Self {
         Self {
-            dying: -10.,
-            pipe_death: -5.,
+            dying: -1.,
+            pipe_death: -0.5,
 
-            pipe_cleared: 10.,
+            pipe_cleared: 5.,
             alive: 0.1,
             jump_cost: 0.0,
         }
