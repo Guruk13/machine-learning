@@ -1,18 +1,16 @@
 use super::pipes::*;
 use crate::ml::agent_utils::{Action, GameStateFeatures, RewardPrizes};
 use crate::ml::model::Net;
-use crate::ml::multiagent::{download_bytes, get_global_device, AMRessource};
+use crate::ml::multiagent::AMRessource;
 use crate::player::{
     Bird, BirdInventory, BirdJump, GameSets, Lifetime, Opacity, Pipe, PipeBottom, PipeTop, Player,
     Velocity,
 };
 
-use crate::MyAutodiffBackend;
 use crate::RegistrySnapshot;
 use crate::ReplacementState;
 use bevy::camera::primitives::Aabb;
 use bevy::prelude::*;
-use burn::tensor::backend::AutodiffBackend;
 use std::collections::HashMap;
 use wasm_bindgen_futures::spawn_local;
 pub struct BrainPlugin;
@@ -20,6 +18,8 @@ use std::cell::Cell;
 use std::cell::RefCell;
 use std::collections::HashSet;
 use std::rc::Rc;
+
+use crate::ml::multiagent::download_bytes;
 // to be able to run updates on every agent without cutting some agent's experience , store the birds here , then respawn once optimizations are through
 #[derive(Resource, Default)]
 pub struct DeadBirdRegistry(pub HashSet<u32>);
@@ -67,7 +67,7 @@ fn think(
 ) {
     let mut all_birds: Vec<_> = birds.iter_mut().collect();
     //linear distribution
-    let n = all_birds.iter().count();
+    let n = all_birds.len();
     let denom = (n.saturating_sub(1)).max(1) as f32; // avoid divide by zero when N == 1
     for (entity, bird, transform, velocity, bird_aabb, _lifetime, opacity) in all_birds.iter_mut() {
         let calculated_velocity = Vec2::new(PIPE_SPEED, velocity.0).to_angle();
@@ -165,7 +165,7 @@ fn think(
 
         let action = agent.select_action();
 
-        if bird.score % 15 == 0 && bird.score != 0 {
+        if bird.score % 2 == 0 && bird.score != 0 {
             #[cfg(target_arch = "wasm32")]
             web_sys::console::log_1(
                 &format!("{:?} {:?}, {:?}", bird.score, bird.uid, agent.settings).into(),
@@ -201,7 +201,7 @@ fn think(
     //Gamestate has been processed , process bird's agent  stats
     let birds_dead: Vec<_> = all_birds
         .iter()
-        .filter(|(_, bird, _, _, _, _, _)| bird.dead == true)
+        .filter(|(_, bird, _, _, _, _, _)| bird.dead)
         .collect();
 
     for bird in &birds_dead {
@@ -222,7 +222,7 @@ pub fn run_forwards_and_optims(
     thread_local! {
         static DONE: Rc<Cell<Option<bool>>> = Rc::new(Cell::new(None));
         // incremented after each successful batch of descent
-        static EPOCH: Cell<u32> = Cell::new(0);
+        static EPOCH: Cell<u32> = const { Cell::new(0) };
     }
     const CULL_EVERY: u32 = 3;
 
@@ -247,12 +247,12 @@ pub fn run_forwards_and_optims(
             //
             EPOCH.with(|e| e.set(e.get() + 1));
             let epoch = EPOCH.with(|e| e.get());
-            let cull_epoch = epoch > 0 && epoch % CULL_EVERY == 0;
+            let cull_epoch = epoch > 0 && epoch.is_multiple_of(CULL_EVERY);
 
             spawn_local(async move {
                 let mut _total = 0.0f32;
                 let _n = agents.len() as f32;
-                for (_, a) in agents.iter().enumerate() {
+                for a in agents.iter() {
                     if a.borrow().state.episode.is_empty() {
                         continue;
                     }
@@ -283,7 +283,7 @@ pub fn run_forwards_and_optims(
                 None => {
                     // (target handle, source handle)
                     let mut copies: Vec<(Rc<RefCell<Net>>, Rc<RefCell<Net>>)> = Vec::new();
-                    let bottom: HashSet<u32>;
+
                     let mut middle_sources: HashMap<u32, Rc<RefCell<Net>>> = HashMap::new();
 
                     done_task.set(Some(false));
@@ -309,7 +309,7 @@ pub fn run_forwards_and_optims(
                     let keys: Vec<u32> = ranked.iter().map(|(k, _)| *k).collect();
                     let top: Vec<u32> = keys[top_start..].iter().rev().copied().collect(); // best-first
                     let middle: Vec<u32> = keys[mid_start..top_start].to_vec();
-                    bottom = keys[..mid_start].iter().copied().collect();
+                    let bottom: HashSet<u32> = keys[..mid_start].iter().copied().collect();
 
                     // middle third <- clones of top third (round-robin)
                     for (i, k) in middle.iter().enumerate() {

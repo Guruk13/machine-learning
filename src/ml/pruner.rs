@@ -132,6 +132,12 @@ pub struct PopulationManager {
     //pub stats: Vec<AgentStats>,
     pub cfg: PruningConfig,
 }
+impl Default for PopulationManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl PopulationManager {
     pub fn new() -> Self {
         Self {

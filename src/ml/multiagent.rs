@@ -4,18 +4,19 @@ use super::agent_utils::GameStateFeatures;
 use super::model::FlappyGradientAgent;
 use std::collections::HashMap;
 
-use crate::ml::model::FlappyNet;
-use crate::MyAutodiffBackend;
 use crate::ReplacementState;
 use burn::backend::wgpu::WgpuDevice;
-use burn::prelude::Module;
-use burn::record::{BinBytesRecorder, FullPrecisionSettings, Recorder};
-use burn::tensor::backend::AutodiffBackend;
 use std::sync::OnceLock;
 use std::{cell::RefCell, rc::Rc};
 
 pub struct AgentManager {
     pub inner: HashMap<u32, Rc<RefCell<FlappyGradientAgent>>>,
+}
+
+impl Default for AgentManager {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl AgentManager {

@@ -99,6 +99,12 @@ pub struct AgentState {
     pub score: u32,
 }
 
+impl Default for AgentState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl AgentState {
     pub fn new() -> Self {
         Self {
@@ -131,6 +137,12 @@ GammaBehaviorγ = 0 Fully myopic — only cares about the immediate next reward�
 pub struct AgentDefault {
     pub gamma: f32,
     pub learning_rate: f64,
+}
+
+impl Default for AgentDefault {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl AgentDefault {

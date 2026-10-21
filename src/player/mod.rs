@@ -115,12 +115,8 @@ pub struct PointsGate {
 pub struct PendingActions(pub VecDeque<Action>);
 
 #[derive(Component, Debug)]
+#[derive(Default)]
 pub struct Lifetime {
     pub ticks: u32,
 }
 
-impl Default for Lifetime {
-    fn default() -> Self {
-        Self { ticks: 0 }
-    }
-}

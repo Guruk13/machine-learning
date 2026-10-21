@@ -10,6 +10,8 @@ pub mod staticdevice;
 
 pub use plugins::*;
 
+use crate::GameMode::Train;
+
 type RegistrySnapshot = HashSet<u32>;
 
 #[derive(Clone)]
@@ -21,5 +23,13 @@ pub enum ReplacementState {
 }
 type MyBackend = Wgpu<f32, i32>;
 pub type MyAutodiffBackend = Autodiff<MyBackend>;
-#[derive(Debug, Clone)]
-pub struct Applying;
+pub enum GameMode {
+    Train,
+    Play,
+    Demo,
+}
+impl Default for GameMode {
+    fn default() -> Self {
+        Train
+    }
+}

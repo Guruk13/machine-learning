@@ -11,7 +11,6 @@ use super::OPTIMIZER_EPSILON;
 use crate::ml::multiagent::get_global_device;
 use crate::MyAutodiffBackend;
 use burn::record::{BinBytesRecorder, FullPrecisionSettings, Recorder};
-use burn::tensor::backend::AutodiffBackend;
 use burn::tensor::Device;
 use std::cell::RefCell;
 use std::marker::PhantomData;
@@ -27,6 +26,12 @@ pub struct FlappyNet<B: Backend> {
     linear2: Linear<MyAutodiffBackend>,
     activation: Relu,
     _marker: PhantomData<B>,
+}
+
+impl<B: Backend> Default for FlappyNet<B> {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl<B: Backend> FlappyNet<B> {
@@ -108,7 +113,7 @@ impl FlappyGradientAgent {
             pending_action: Rc::new(RefCell::new(None)),
             action_inflight: Rc::new(RefCell::new(false)),
             last_action: Action::DoNothing,
-            settings: settings,
+            settings,
         }
     }
 
