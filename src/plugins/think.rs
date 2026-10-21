@@ -68,9 +68,12 @@ fn think(
 ) {
     let mut all_birds: Vec<_> = birds.iter_mut().collect();
     //linear distribution
-    let n = all_birds.len();
-    let denom = (n.saturating_sub(1)).max(1) as f32; // avoid divide by zero when N == 1
-    for (entity, bird, transform, velocity, bird_aabb, _lifetime, opacity) in all_birds.iter_mut() {
+    //let n = all_birds.len();
+    //let denom = (n.saturating_sub(1)).max(1) as f32; // avoid divide by zero when N == 1
+    //let _rank = agent.stats.rank as f32;
+    //opacity.value = 100.0 * (1.0 - rank / denom);
+    for (entity, bird, transform, velocity, bird_aabb, _lifetime, _opacity) in all_birds.iter_mut()
+    {
         let calculated_velocity = Vec2::new(PIPE_SPEED, velocity.0).to_angle();
         let bird_x = transform.translation.x;
         let bird_left_edge = bird_x + bird_aabb.half_extents.x;
@@ -124,8 +127,6 @@ fn think(
         //get an agent , sync it with Bird's pov
         am_ressource.agent_manager.bind_agent(bird.uid, state);
         let mut agent = am_ressource.agent_manager.inner[&bird.uid].borrow_mut();
-        let _rank = agent.stats.rank as f32;
-        //opacity.value = 100.0 * (1.0 - rank / denom);
 
         //compute reward
         let mut reward: f32 = if bird.dead {
@@ -358,8 +359,6 @@ pub fn run_forwards_and_optims(
             *replacement.borrow_mut() = ReplacementState::Idle;
         }
     }
-
-    commands.trigger(ClearPipes);
 }
 pub fn no_birds_in_main_system(
     alive: Query<&Bird>,

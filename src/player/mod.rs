@@ -54,7 +54,6 @@ pub struct BirdDeath {
     pub bird: Entity,
 }
 
-//https://docs.rs/bevy_ecs/0.18.0/bevy_ecs/event/struct.EntityTrigger.html don't tell claude about this or i'll be jobless
 #[derive(EntityEvent)]
 #[entity_event(propagate)]
 pub struct BirdJump(pub Entity);

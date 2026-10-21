@@ -362,6 +362,7 @@ fn bird_respawn(
     asset_server: Res<AssetServer>,
     mut birdinv: ResMut<BirdInventory>,
 ) -> Result<()> {
+    commands.trigger(ClearPipes);
     for value in birdinv.0.drain() {
         commands.spawn(Bird::new(&asset_server, false, value));
         //warn!("spawn {:?}", value)
@@ -375,11 +376,7 @@ fn on_bird_jump(event: On<BirdJump>, mut velocities: Query<&mut Velocity, With<B
     }
 }
 
-fn on_switch_gamemode(event: On<SwitchGamemode>, mut commands: Commands) {
-    if let Ok(mut velocity) = velocities.get_mut(event.0) {
-        velocity.0 = 300.;
-    }
-}
+fn on_switch_gamemode(event: On<SwitchGamemode>, mut commands: Commands) {}
 
 //debug helper
 fn set_time_scale(mut time: ResMut<Time<Virtual>>) {

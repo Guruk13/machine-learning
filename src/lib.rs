@@ -1,6 +1,6 @@
+use bevy::prelude::*;
 use burn::backend::wgpu::Wgpu;
 use burn::backend::Autodiff;
-
 use std::collections::HashSet;
 pub mod ml;
 pub mod player;
@@ -32,3 +32,6 @@ impl Default for GameMode {
         GameMode::Train
     }
 }
+
+#[derive(Event)]
+pub struct SwitchGamemode(pub GameMode);
