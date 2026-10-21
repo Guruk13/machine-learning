@@ -1,8 +1,8 @@
 use crate::player::{Pipe, PipeBottom, PipeTop, PointsGate};
+use crate::EndGame;
 use bevy::camera::primitives::Aabb;
 use bevy::{image::ImageLoaderSettings, prelude::*, time::common_conditions::on_timer};
 use std::time::Duration;
-
 pub const CANVAS_SIZE: Vec2 = Vec2::new(480., 270.);
 
 pub const PLAYER_SIZE: f32 = 25.0;
@@ -116,7 +116,7 @@ fn despawn_pipes(mut commands: Commands, pipes: Query<(Entity, &Transform), With
 }
 
 // Runs only when ClearPipes is triggered
-fn clear_pipes(_event: On<ClearPipes>, mut commands: Commands, pipes: Query<Entity, With<Pipe>>) {
+fn clear_pipes(_event: On<EndGame>, mut commands: Commands, pipes: Query<Entity, With<Pipe>>) {
     for e in &pipes {
         commands.entity(e).despawn();
     }

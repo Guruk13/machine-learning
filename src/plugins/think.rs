@@ -2,14 +2,13 @@ use super::pipes::*;
 use crate::ml::agent_utils::{Action, GameStateFeatures, RewardPrizes};
 use crate::ml::model::Net;
 use crate::ml::multiagent::AMRessource;
-use crate::pipes::ClearPipes;
 use crate::player::{
     Bird, BirdInventory, BirdJump, GameSets, Lifetime, Opacity, PipeBottom, PipeTop, Player,
     Velocity,
 };
 
-use crate::RegistrySnapshot;
 use crate::ReplacementState;
+use crate::{BeginGame, RegistrySnapshot};
 use bevy::camera::primitives::Aabb;
 use bevy::prelude::*;
 use std::collections::HashMap;
@@ -23,7 +22,7 @@ use std::rc::Rc;
 
 // to be able to run updates on every agent without cutting some agent's experience , store the birds here , then respawn once optimizations are through
 #[derive(Resource, Default)]
-pub struct DeadBirdRegistry(pub HashSet<u32>);
+pub struct DeadBirdRegistry(pub HashSet<u8>);
 use crate::ml::multiagent::AgentManager;
 impl Plugin for BrainPlugin {
     fn build(&self, app: &mut App) {
@@ -281,11 +280,11 @@ pub fn run_forwards_and_optims(
                     // (target handle, source handle)
                     let mut copies: Vec<(Rc<RefCell<Net>>, Rc<RefCell<Net>>)> = Vec::new();
 
-                    let mut middle_sources: HashMap<u32, Rc<RefCell<Net>>> = HashMap::new();
+                    let mut middle_sources: HashMap<u8, Rc<RefCell<Net>>> = HashMap::new();
 
                     done_task.set(Some(false));
                     // rank worst -> best (stats are still intact: reset happens below)
-                    let mut ranked: Vec<(u32, f32)> = am_ressource
+                    let mut ranked: Vec<(u8, f32)> = am_ressource
                         .agent_manager
                         .inner
                         .iter()
@@ -294,19 +293,15 @@ pub fn run_forwards_and_optims(
                     ranked
                         .sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
 
-                    am_ressource.agent_manager.inner.iter().for_each(|(k, a)| {
-                        a.borrow_mut().stats.rank = ranked[*k as usize].0;
-                    });
-
                     let n = ranked.len();
                     let third = (n / 3).max(1);
                     let top_start = n - third;
                     let mid_start = top_start.saturating_sub(third);
 
-                    let keys: Vec<u32> = ranked.iter().map(|(k, _)| *k).collect();
-                    let top: Vec<u32> = keys[top_start..].iter().rev().copied().collect(); // best-first
-                    let middle: Vec<u32> = keys[mid_start..top_start].to_vec();
-                    let bottom: HashSet<u32> = keys[..mid_start].iter().copied().collect();
+                    let keys: Vec<u8> = ranked.iter().map(|(k, _)| *k).collect();
+                    let top: Vec<u8> = keys[top_start..].iter().rev().copied().collect(); // best-first
+                    let middle: Vec<u8> = keys[mid_start..top_start].to_vec();
+                    let bottom: HashSet<u8> = keys[..mid_start].iter().copied().collect();
 
                     // middle third <- clones of top third (round-robin)
                     for (i, k) in middle.iter().enumerate() {
@@ -318,7 +313,7 @@ pub fn run_forwards_and_optims(
                         middle_sources.insert(*k, src);
                     }
 
-                    let mut to_remove: Vec<u32> = Vec::new();
+                    let mut to_remove: Vec<u8> = Vec::new();
                     for (key, agent) in am_ressource.agent_manager.inner.iter() {
                         if bottom.contains(key) {
                             // removed, new agents are created in the next run
@@ -357,6 +352,7 @@ pub fn run_forwards_and_optims(
             live_inventory.0 = finalized.clone();
             registry.0.clear();
             *replacement.borrow_mut() = ReplacementState::Idle;
+            commands.trigger(BeginGame);
         }
     }
 }

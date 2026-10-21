@@ -42,6 +42,7 @@ async fn async_main() {
         .insert_resource(BurnDevice(device))
         .init_resource::<Score>()
         .insert_resource(BirdInventory(HashSet::new()))
+        .insert_resource(GamemodeResource(GameMode::train()))
         .configure_sets(
             FixedUpdate,
             (
@@ -57,7 +58,7 @@ async fn async_main() {
             PipePlugin,
             Material2dPlugin::<BackgroundMaterial>::default(),
         ))
-        .add_systems(Startup, (startup, spawn_birds))
+        .add_systems(Startup, (startup))
         .add_systems(
             FixedUpdate,
             (gravity, check_in_bounds, check_collisions).chain(),
@@ -70,7 +71,6 @@ async fn async_main() {
                 enforce_bird_direction,
             ),
         )
-        .add_observer(respawn_on_endgame)
         .add_observer(on_bird_jump)
         .add_observer(|_trigger: On<ScorePoint>, mut score: ResMut<Score>| {
             score.0 += 1;
@@ -89,11 +89,9 @@ async fn async_main() {
                 .chain()
                 .in_set(GameSets::Game),
         )
-        // usually you'd rather move an entity instead of despawn /respawn.
-        // here pipes can obstruct the spawn point. spawn a bird only in somewhat fair conditions
         .add_systems(
             FixedPostUpdate,
-            (ApplyDeferred, despawn_deads, bird_respawn)
+            (ApplyDeferred, despawn_deads)
                 .chain()
                 .in_set(GameSets::Cleanup),
         )
@@ -103,9 +101,6 @@ async fn async_main() {
         .add_plugins(BrainPlugin)
         .run();
 }
-
-#[derive(Event)]
-struct EndGame;
 
 fn startup(
     mut commands: Commands,
@@ -158,6 +153,7 @@ fn startup(
             ),
         })),
     ));
+    commands.trigger(BeginGame);
 }
 
 fn gravity(mut transforms: Query<(&mut Transform, &mut Velocity, &Gravity)>, time: Res<Time>) {
@@ -170,47 +166,42 @@ fn gravity(mut transforms: Query<(&mut Transform, &mut Velocity, &Gravity)>, tim
 
 fn controls(
     mut commands: Commands,
-    player: Option<Single<Entity, With<Player>>>,
+    player: Single<Entity, With<Player>>,
     buttons: Res<ButtonInput<MouseButton>>,
 ) {
-    match player {
-        None => { /* not spawned yet, do nothing */ }
-        Some(player) => {
-            if buttons.any_just_pressed([MouseButton::Left, MouseButton::Right]) {
-                //velocity.0 = 400.;
-                commands.trigger(BirdJump(*player));
-            }
-        }
+    if buttons.any_just_pressed([MouseButton::Left, MouseButton::Right]) {
+        commands.trigger(BirdJump(*player));
     }
 }
 
 fn check_in_bounds(
-    mut birds: Query<(Entity, &Transform, &mut Bird, Has<Player>), With<Bird>>,
+    mut birds: Query<(Entity, &Transform, &mut Bird), With<Bird>>,
     mut commands: Commands,
+    mut gamemode: Res<GamemodeResource>,
 ) {
-    let wheelie_bounds = false;
     // check each bird
-    for (entity, transform, mut bird, is_player) in birds.iter_mut() {
-        if !wheelie_bounds {
-            if transform.translation.y < -CANVAS_SIZE.y / 2.0 - PLAYER_SIZE
-                || transform.translation.y > CANVAS_SIZE.y / 2.0 + PLAYER_SIZE
-            {
-                bird.dead = true;
-                if is_player {
-                    commands.trigger(EndGame);
-                } else {
+    for (entity, transform, mut bird) in birds.iter_mut() {
+        if transform.translation.y < -CANVAS_SIZE.y / 2.0 - PLAYER_SIZE
+            || transform.translation.y > CANVAS_SIZE.y / 2.0 + PLAYER_SIZE
+        {
+            bird.dead = true;
+
+            match gamemode.0 {
+                GameMode::Train { .. } => {
                     commands.trigger(BirdDeath { bird: entity });
                 }
-            }
-        } else {
-            if transform.translation.y < -CANVAS_SIZE.y / 2.0 - PLAYER_SIZE {
-                commands.trigger(BirdJump(entity));
+                GameMode::Play { .. } => {
+                    commands.trigger(EndGame);
+                }
+                GameMode::Demo { .. } => {
+                    commands.trigger(EndGame);
+                }
             }
         }
     }
 }
 
-fn respawn_on_endgame(
+fn handle_endgame(
     _: On<EndGame>,
     mut commands: Commands,
     player: Option<Single<Entity, With<Player>>>,
@@ -228,14 +219,28 @@ fn respawn_on_endgame(
     }
 }
 
-fn spawn_birds(mut commands: Commands, asset_server: Res<AssetServer>) {
-    for n in 0..9 {
-        commands.spawn(Bird::new(&*asset_server, false, n));
+fn spawn_birds(
+    mut commands: Commands,
+    asset_server: Res<AssetServer>,
+    gamemode: Res<GamemodeResource>,
+) {
+    match gamemode.0 {
+        GameMode::Demo { .. } => {}
+        GameMode::Play {
+            birdnumber,
+            opacity,
+        } => {
+            commands.spawn((Player, Bird::new(&*asset_server, 0, opacity)));
+        }
+        GameMode::Train {
+            birdnumber,
+            opacity,
+        } => {
+            for n in 0..birdnumber {
+                commands.spawn(Bird::new(&*asset_server, n, opacity));
+            }
+        }
     }
-}
-
-fn _spawn_player(mut commands: Commands, asset_server: Res<AssetServer>) {
-    commands.spawn((Player, Bird::new(&*asset_server, true, 0)));
 }
 
 fn despawn_deads(
@@ -243,13 +248,10 @@ fn despawn_deads(
     mut birdinv: ResMut<BirdInventory>,
     birds: Query<(Entity, &Bird)>,
 ) {
-    //warn! {"there'll be another time"};
     for (entity, bird) in birds {
         if bird.dead {
-            //warn! {"there'll be another time {:?}", bird.uid}
             commands.entity(entity).despawn();
             //pushed in think there's probably a way to implement a trait here
-            //birdinv.0.push(bird.uid)
         };
     }
 }
@@ -288,7 +290,6 @@ fn check_collisions(
                 } else {
                     bird.1.dead = true;
                     bird.1.pipe_death = true;
-
                     commands.trigger(BirdDeath { bird: bird.0 });
                 }
             }
@@ -345,29 +346,11 @@ impl Material2d for BackgroundMaterial {
     }
 }
 
-fn enforce_bird_direction(
-    mut birds: Query<(&mut Transform, &Velocity, &mut Sprite, &Opacity), With<Bird>>,
-) {
-    for (mut transform, velocity, mut sprite, opacity) in &mut birds {
+fn enforce_bird_direction(mut birds: Query<(&mut Transform, &Velocity), With<Bird>>) {
+    for (mut transform, velocity) in &mut birds {
         let calculated_velocity = Vec2::new(PIPE_SPEED, velocity.0);
         transform.rotation = Quat::from_rotation_z(calculated_velocity.to_angle());
-
-        let alpha = (opacity.value / 100.0).clamp(0.0, 1.0);
-        sprite.color = sprite.color.with_alpha(alpha);
     }
-}
-
-fn bird_respawn(
-    mut commands: Commands,
-    asset_server: Res<AssetServer>,
-    mut birdinv: ResMut<BirdInventory>,
-) -> Result<()> {
-    commands.trigger(ClearPipes);
-    for value in birdinv.0.drain() {
-        commands.spawn(Bird::new(&asset_server, false, value));
-        //warn!("spawn {:?}", value)
-    }
-    Ok(())
 }
 
 fn on_bird_jump(event: On<BirdJump>, mut velocities: Query<&mut Velocity, With<Bird>>) {
@@ -376,7 +359,13 @@ fn on_bird_jump(event: On<BirdJump>, mut velocities: Query<&mut Velocity, With<B
     }
 }
 
-fn on_switch_gamemode(event: On<SwitchGamemode>, mut commands: Commands) {}
+fn on_switch_gamemode(event: On<SwitchGamemode>, mut commands: Commands) {
+    match event.0 {
+        GameMode::Demo { .. } => {}
+        GameMode::Play { .. } => {}
+        GameMode::Train { .. } => {}
+    }
+}
 
 //debug helper
 fn set_time_scale(mut time: ResMut<Time<Virtual>>) {

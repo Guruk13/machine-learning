@@ -43,7 +43,7 @@ pub enum GameSets {
 #[require(Gravity(1000.), Velocity)]
 pub struct Bird {
     pub pending: PendingActions,
-    pub uid: u32,
+    pub uid: u8,
     pub dead: bool,
     pub score: u32,
     pub pipe_death: bool,
@@ -61,9 +61,12 @@ pub struct BirdJump(pub Entity);
 impl Bird {
     pub fn new(
         asset_server: &AssetServer,
-        rand: bool,
-        id: u32,
-    ) -> (Bird, Sprite, Transform, Lifetime, Opacity) {
+        id: u8,
+        opacity: f32,
+    ) -> (Bird, Sprite, Transform, Lifetime) {
+        let alpha = (opacity / 100.0).clamp(0.0, 1.0);
+        let color: Color = Srgba::hex("#282828").unwrap().with_alpha(alpha).into();
+
         (
             Bird {
                 uid: id,
@@ -75,22 +78,17 @@ impl Bird {
             Sprite {
                 custom_size: Some(Vec2::splat(PLAYER_SIZE)),
                 image: asset_server.load("bevy-bird.png"),
-                color: Srgba::hex("#282828").unwrap().into(),
+                color: color,
                 ..default()
             },
-            if rand {
-                Transform::from_xyz(-CANVAS_SIZE.x / 4.0, 0.0, 1.0)
-            } else {
-                Transform::from_xyz(-CANVAS_SIZE.x / 4.0, 0.0, 1.0)
-            },
+            Transform::from_xyz(-CANVAS_SIZE.x / 4.0, 0.0, 1.0),
             Lifetime::default(),
-            Opacity { value: 100.0 },
         )
     }
 }
 
 #[derive(Resource, Default, Reflect)]
-pub struct BirdInventory(pub HashSet<u32>);
+pub struct BirdInventory(pub HashSet<u8>);
 
 #[derive(Debug, Component, Clone, Copy, PartialEq, Eq)]
 pub enum Flag {
@@ -107,7 +105,7 @@ pub struct PipeBottom;
 
 #[derive(Component)]
 pub struct PointsGate {
-    pub has_scored: Vec<u32>,
+    pub has_scored: Vec<u8>,
 }
 
 #[derive(Component, Default, Debug)]

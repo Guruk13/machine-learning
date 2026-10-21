@@ -9,8 +9,11 @@ pub mod plugins;
 pub mod staticdevice;
 
 pub use plugins::*;
-
-type RegistrySnapshot = HashSet<u32>;
+#[derive(Event)]
+pub struct BeginGame;
+#[derive(Event)]
+pub struct EndGame;
+type RegistrySnapshot = HashSet<u8>;
 
 #[derive(Clone)]
 pub enum ReplacementState {
@@ -21,17 +24,38 @@ pub enum ReplacementState {
 }
 type MyBackend = Wgpu<f32, i32>;
 pub type MyAutodiffBackend = Autodiff<MyBackend>;
+#[derive(Clone, Copy, Debug, Reflect, PartialEq)]
 pub enum GameMode {
-    Train,
-    Play,
-    Demo,
+    Train { birdnumber: u8, opacity: f32 },
+    Play { birdnumber: u8, opacity: f32 },
+    Demo { birdnumber: u8, opacity: f32 },
 }
 
-impl Default for GameMode {
-    fn default() -> Self {
-        GameMode::Train
+impl GameMode {
+    pub fn train() -> Self {
+        GameMode::Train {
+            birdnumber: 10,
+            opacity: 50.0,
+        }
+    }
+    pub fn play() -> Self {
+        GameMode::Play {
+            birdnumber: 1,
+            opacity: 100.0,
+        }
+    }
+    pub fn demo() -> Self {
+        GameMode::Demo {
+            birdnumber: 1,
+            opacity: 100.0,
+        }
     }
 }
+
+// usage
+
+#[derive(Resource, Reflect)]
+pub struct GamemodeResource(pub GameMode);
 
 #[derive(Event)]
 pub struct SwitchGamemode(pub GameMode);
