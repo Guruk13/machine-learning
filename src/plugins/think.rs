@@ -2,8 +2,9 @@ use super::pipes::*;
 use crate::ml::agent_utils::{Action, GameStateFeatures, RewardPrizes};
 use crate::ml::model::Net;
 use crate::ml::multiagent::AMRessource;
+use crate::pipes::ClearPipes;
 use crate::player::{
-    Bird, BirdInventory, BirdJump, GameSets, Lifetime, Opacity, Pipe, PipeBottom, PipeTop, Player,
+    Bird, BirdInventory, BirdJump, GameSets, Lifetime, Opacity, PipeBottom, PipeTop, Player,
     Velocity,
 };
 
@@ -101,13 +102,13 @@ fn think(
         // Active pipes
         let nearest_top = extract_pipe(
             tops_ahead.first().map(|x| x),
-            PipeKind::Top,
+            PipeKind::PipeTop,
             transform.translation.y,
             bird_left_edge,
         );
         let nearest_bot = extract_pipe(
             bots_ahead.first().map(|x| x),
-            PipeKind::Bottom,
+            PipeKind::PipeBottom,
             transform.translation.y,
             bird_left_edge,
         );
@@ -137,7 +138,21 @@ fn think(
         } else {
             0.0
         };
-
+        if bird.score % 15 == 0 && bird.score != 0 && bird.score != agent.state.score {
+            #[cfg(target_arch = "wasm32")]
+            web_sys::console::log_1(
+                &format!("{:?} {:?}, {:?}", bird.score, bird.uid, agent.settings).into(),
+            );
+            agent.state.score = bird.score;
+            let model = agent.get_model();
+            //
+            let bytes = model.borrow().weights_to_bytes();
+            #[cfg(target_arch = "wasm32")]
+            download_bytes(
+                &bytes,
+                &format!("flappy_score{}_{}.bin", bird.score, bird.uid),
+            );
+        }
         if bird.score > agent.state.score {
             reward += RewardPrizes::default().pipe_cleared;
             agent.state.score = bird.score;
@@ -164,24 +179,6 @@ fn think(
         }
 
         let action = agent.select_action();
-
-        if bird.score % 2 == 0 && bird.score != 0 {
-            #[cfg(target_arch = "wasm32")]
-            web_sys::console::log_1(
-                &format!("{:?} {:?}, {:?}", bird.score, bird.uid, agent.settings).into(),
-            );
-            agent.state.score = bird.score;
-            let model = agent.get_model();
-            //
-            let bytes = model.borrow().weights_to_bytes();
-            #[cfg(target_arch = "wasm32")]
-            download_bytes(
-                &bytes,
-                &format!("flappy_score{}_{}.bin", bird.score, bird.uid),
-            );
-
-            //panic!("with it, our path is clear")
-        }
 
         match action {
             Action::DoNothing => {}
@@ -216,7 +213,6 @@ pub fn run_forwards_and_optims(
     mut registry: ResMut<DeadBirdRegistry>,
     mut am_ressource: NonSendMut<AMRessource>,
     mut live_inventory: ResMut<BirdInventory>,
-    pipes: Query<(Entity, &Transform), With<Pipe>>,
     mut commands: Commands,
 ) {
     thread_local! {
@@ -363,10 +359,7 @@ pub fn run_forwards_and_optims(
         }
     }
 
-    // clean slate, deserves its own system
-    for (e, _) in pipes.iter() {
-        commands.entity(e).despawn();
-    }
+    commands.trigger(ClearPipes);
 }
 pub fn no_birds_in_main_system(
     alive: Query<&Bird>,
@@ -418,8 +411,8 @@ struct PipeEdgeInfo {
 //there's already a generic for this @todo
 #[derive(Clone, Copy)]
 enum PipeKind {
-    Top,    // gap ceiling = bottom edge of the pipe
-    Bottom, // gap floor   = top edge of the pipe
+    PipeTop,    // gap ceiling = bottom edge of the pipe
+    PipeBottom, // gap floor   = top edge of the pipe
 }
 
 fn extract_pipe(
@@ -434,8 +427,8 @@ fn extract_pipe(
             let half = Vec3::from(aabb.half_extents) * t.compute_transform().scale;
 
             let edge_y = match kind {
-                PipeKind::Top => center.y - half.y,
-                PipeKind::Bottom => center.y + half.y,
+                PipeKind::PipeTop => center.y - half.y,
+                PipeKind::PipeBottom => center.y + half.y,
             };
 
             PipeEdgeInfo {
@@ -447,8 +440,8 @@ fn extract_pipe(
         None => PipeEdgeInfo {
             exists: false,
             edge_y: match kind {
-                PipeKind::Top => CANVAS_SIZE[1] / 2.0,     // canvas ceiling
-                PipeKind::Bottom => -CANVAS_SIZE[1] / 2.0, // canvas floor
+                PipeKind::PipeTop => CANVAS_SIZE[1] / 2.0, // canvas ceiling
+                PipeKind::PipeBottom => -CANVAS_SIZE[1] / 2.0, // canvas floor
             } - bird_y,
             remaining_x: CANVAS_SIZE[0],
         },

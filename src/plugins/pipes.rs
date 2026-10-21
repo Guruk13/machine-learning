@@ -12,6 +12,9 @@ pub const PIPE_SPEED: f32 = 150.0;
 
 pub struct PipePlugin;
 
+#[derive(Event)]
+pub struct ClearPipes;
+
 impl Plugin for PipePlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(
@@ -21,7 +24,10 @@ impl Plugin for PipePlugin {
                 shift_pipes_to_the_left,
                 spawn_pipes.run_if(on_timer(Duration::from_millis(1000))),
             ),
-        );
+        )
+
+       .add_observer(clear_pipes) // register the observer
+        ;
     }
 }
 
@@ -106,5 +112,12 @@ fn despawn_pipes(mut commands: Commands, pipes: Query<(Entity, &Transform), With
         if transform.translation.x < -(CANVAS_SIZE.x / 2.0 + PIPE_SIZE.x) {
             commands.entity(entity).despawn();
         }
+    }
+}
+
+// Runs only when ClearPipes is triggered
+fn clear_pipes(_event: On<ClearPipes>, mut commands: Commands, pipes: Query<Entity, With<Pipe>>) {
+    for e in &pipes {
+        commands.entity(e).despawn();
     }
 }
