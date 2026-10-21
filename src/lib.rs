@@ -10,8 +10,6 @@ pub mod staticdevice;
 
 pub use plugins::*;
 
-use crate::GameMode::Train;
-
 type RegistrySnapshot = HashSet<u32>;
 
 #[derive(Clone)]
@@ -28,8 +26,9 @@ pub enum GameMode {
     Play,
     Demo,
 }
+
 impl Default for GameMode {
     fn default() -> Self {
-        Train
+        GameMode::Train
     }
 }

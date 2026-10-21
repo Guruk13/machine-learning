@@ -15,12 +15,12 @@ use bevy::prelude::*;
 use std::collections::HashMap;
 use wasm_bindgen_futures::spawn_local;
 pub struct BrainPlugin;
+use crate::ml::multiagent::download_bytes;
 use std::cell::Cell;
 use std::cell::RefCell;
 use std::collections::HashSet;
 use std::rc::Rc;
 
-use crate::ml::multiagent::download_bytes;
 // to be able to run updates on every agent without cutting some agent's experience , store the birds here , then respawn once optimizations are through
 #[derive(Resource, Default)]
 pub struct DeadBirdRegistry(pub HashSet<u32>);
@@ -124,8 +124,8 @@ fn think(
         //get an agent , sync it with Bird's pov
         am_ressource.agent_manager.bind_agent(bird.uid, state);
         let mut agent = am_ressource.agent_manager.inner[&bird.uid].borrow_mut();
-        let rank = agent.stats.rank as f32;
-        opacity.value = 100.0 * (1.0 - rank / denom);
+        let _rank = agent.stats.rank as f32;
+        //opacity.value = 100.0 * (1.0 - rank / denom);
 
         //compute reward
         let mut reward: f32 = if bird.dead {

@@ -357,59 +357,33 @@ fn enforce_bird_direction(
     }
 }
 
-//on postfixed update to give time for proper thinking and avoid collision
 fn bird_respawn(
     mut commands: Commands,
     asset_server: Res<AssetServer>,
     mut birdinv: ResMut<BirdInventory>,
-    pipe_segments: Query<(&Sprite, Entity), Or<(With<PipeTop>, With<PipeBottom>)>>,
-    transform_helper: TransformHelper,
-    pipe_gaps: Query<(&Sprite, Entity), With<PointsGate>>,
 ) -> Result<()> {
-    let translation = Vec2::new(-CANVAS_SIZE.x / 4.0, 0.0);
-    let bird_collider = BoundingCircle::new(translation, 75.0); // spawn is clear of 50% a Bird's size
-
-    let mut has_intersected = pipe_segments.iter().any(|(sprite, entity)| {
-        let pipe_transform = transform_helper.compute_global_transform(entity).unwrap();
-        let pipe_collider = Aabb2d::new(
-            pipe_transform.translation().xy(),
-            sprite.custom_size.unwrap() / 2.,
-        );
-        bird_collider.intersects(&pipe_collider)
-    });
-
-    for (sprite, entity) in pipe_gaps {
-        let gap_transform = transform_helper.compute_global_transform(entity)?;
-        let gap_collider = Aabb2d::new(
-            gap_transform.translation().xy(),
-            sprite.custom_size.unwrap() / 2.,
-        );
-
-        if bird_collider.intersects(&gap_collider) {
-            has_intersected = true;
-        }
-    }
-
-    if !has_intersected {
-        for value in birdinv.0.drain() {
-            commands.spawn(Bird::new(&asset_server, false, value));
-            //warn!("spawn {:?}", value)
-        }
+    for value in birdinv.0.drain() {
+        commands.spawn(Bird::new(&asset_server, false, value));
+        //warn!("spawn {:?}", value)
     }
     Ok(())
 }
 
 fn on_bird_jump(event: On<BirdJump>, mut velocities: Query<&mut Velocity, With<Bird>>) {
     if let Ok(mut velocity) = velocities.get_mut(event.0) {
-        velocity.0 = 300.; // this is the ONE place that knows how jumping works
+        velocity.0 = 300.;
+    }
+}
+
+fn on_switch_gamemode(event: On<SwitchGamemode>, mut commands: Commands) {
+    if let Ok(mut velocity) = velocities.get_mut(event.0) {
+        velocity.0 = 300.;
     }
 }
 
 //debug helper
 fn set_time_scale(mut time: ResMut<Time<Virtual>>) {
     time.set_relative_speed(0.5); // 2x faster
-                                  // time.set_relative_speed(0.5); // half speed
-                                  // time.set_relative_speed(0.0); // pause
 }
 fn toggle_pause(mut time: ResMut<Time<Virtual>>, keys: Res<ButtonInput<KeyCode>>) {
     if keys.just_pressed(KeyCode::Space) {
