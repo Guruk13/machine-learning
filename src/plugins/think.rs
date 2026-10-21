@@ -1,28 +1,29 @@
 use super::pipes::*;
 use crate::ml::agent_utils::{Action, GameStateFeatures, RewardPrizes};
 use crate::ml::model::Net;
+use crate::ml::multiagent::{download_bytes, get_global_device, AMRessource};
 use crate::player::{
     Bird, BirdInventory, BirdJump, GameSets, Lifetime, Opacity, Pipe, PipeBottom, PipeTop, Player,
     Velocity,
 };
-use crate::RegistrySnapshot;
-use crate::{AMRessource, ReplacementState};
-use std::collections::HashMap;
-use wasm_bindgen_futures::spawn_local;
 
+use crate::MyAutodiffBackend;
+use crate::RegistrySnapshot;
+use crate::ReplacementState;
 use bevy::camera::primitives::Aabb;
 use bevy::prelude::*;
+use burn::tensor::backend::AutodiffBackend;
+use std::collections::HashMap;
+use wasm_bindgen_futures::spawn_local;
 pub struct BrainPlugin;
-
 use std::cell::Cell;
 use std::cell::RefCell;
 use std::collections::HashSet;
 use std::rc::Rc;
-
 // to be able to run updates on every agent without cutting some agent's experience , store the birds here , then respawn once optimizations are through
 #[derive(Resource, Default)]
 pub struct DeadBirdRegistry(pub HashSet<u32>);
-
+use crate::ml::multiagent::AgentManager;
 impl Plugin for BrainPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(
@@ -35,7 +36,11 @@ impl Plugin for BrainPlugin {
                 .chain()
                 .in_set(GameSets::AI),
         )
-        .insert_resource(DeadBirdRegistry(HashSet::new()));
+        .insert_resource(DeadBirdRegistry(HashSet::new()))
+        .insert_non_send(AMRessource {
+            agent_manager: AgentManager::new(),
+            replacement: Rc::new(RefCell::new(ReplacementState::Idle)),
+        });
     }
 }
 
@@ -166,8 +171,14 @@ fn think(
                 &format!("{:?} {:?}, {:?}", bird.score, bird.uid, agent.settings).into(),
             );
             agent.state.score = bird.score;
-            agent.get_model();
+            let model = agent.get_model();
             //
+            let bytes = model.borrow().weights_to_bytes();
+            #[cfg(target_arch = "wasm32")]
+            download_bytes(
+                &bytes,
+                &format!("flappy_score{}_{}.bin", bird.score, bird.uid),
+            );
 
             //panic!("with it, our path is clear")
         }
@@ -186,16 +197,12 @@ fn think(
         }
 
         agent.record_step(action, reward);
-        //#[cfg(target_arch = "wasm32")]
-        //web_sys::console::log_1(&format!("{:?}", reward).into());
     }
     //Gamestate has been processed , process bird's agent  stats
     let birds_dead: Vec<_> = all_birds
         .iter()
         .filter(|(_, bird, _, _, _, _, _)| bird.dead == true)
         .collect();
-
-    // warn!("{:?}", birds_dead.len());
 
     for bird in &birds_dead {
         registry.0.insert(bird.1.uid);
@@ -204,7 +211,7 @@ fn think(
             .agent_finish_episode();
     }
 }
-//this function is end of the line for async works : it hands off major tensor tasks to wasm worker before resuming them in another micro task loop
+//this function is end of the line for async works : it hands off major tensor tasks to wgpu worker before resuming them in another micro task loop
 pub fn run_forwards_and_optims(
     mut registry: ResMut<DeadBirdRegistry>,
     mut am_ressource: NonSendMut<AMRessource>,
@@ -356,7 +363,7 @@ pub fn run_forwards_and_optims(
         }
     }
 
-    // clean slate
+    // clean slate, deserves its own system
     for (e, _) in pipes.iter() {
         commands.entity(e).despawn();
     }
@@ -408,6 +415,7 @@ struct PipeEdgeInfo {
     remaining_x: f32,
 }
 
+//there's already a generic for this @todo
 #[derive(Clone, Copy)]
 enum PipeKind {
     Top,    // gap ceiling = bottom edge of the pipe

@@ -11,24 +11,20 @@ use bevy::{
 use bevy::{color::palettes::tailwind::RED_400, image::ImageLoaderSettings};
 use flappy_bird::{ml::agent_utils::GameStateFeatures, *};
 
+use crate::ml::multiagent::set_global_device;
+use crate::ml::multiagent::AMRessource;
 use crate::ml::multiagent::AgentManager;
 use crate::player::Pipe;
 use crate::player::*;
-use crate::staticdevice::set_global_device;
+use burn::backend::wgpu::WgpuDevice;
 use burn::tensor::Device;
-use flappy_bird::AMRessource;
 use flappy_bird::BrainPlugin;
 use std::rc::Rc;
 use std::time::Duration;
 use std::{cell::RefCell, collections::HashSet};
-fn tick_lifetime(time: Res<Time<Fixed>>, mut query: Query<&mut Lifetime>) {
-    for mut life in &mut query {
-        life.ticks += 1;
-    }
-}
 
-// app.add_systems(FixedUpdate, tick_lifetime);
-
+#[derive(Resource, Clone)]
+pub struct BurnDevice(pub WgpuDevice);
 fn main() {
     // sync main — just kicks off the async work and doesn't wait for it
     wasm_bindgen_futures::spawn_local(async_main());
@@ -40,15 +36,11 @@ async fn async_main() {
         Default::default(),
     )
     .await;
-    set_global_device(device.clone());
+    set_global_device(device.clone()); // still needed for code outside Bevy
 
     App::new()
+        .insert_resource(BurnDevice(device))
         .init_resource::<Score>()
-        .insert_non_send_resource(AMRessource {
-            agent_manager: AgentManager::new(),
-
-            replacement: Rc::new(RefCell::new(ReplacementState::Idle)),
-        })
         .insert_resource(BirdInventory(HashSet::new()))
         .configure_sets(
             FixedUpdate,
@@ -101,7 +93,7 @@ async fn async_main() {
         // here pipes can obstruct the spawn point. spawn a bird only in somewhat fair conditions
         .add_systems(
             FixedPostUpdate,
-            (ApplyDeferred, tick_lifetime, despawn_deads, bird_respawn)
+            (ApplyDeferred, despawn_deads, bird_respawn)
                 .chain()
                 .in_set(GameSets::Cleanup),
         )

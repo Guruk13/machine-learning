@@ -1,5 +1,3 @@
-use crate::staticdevice::get_global_device;
-
 use super::agent_utils::{Action, AgentDefault, AgentState, AgentStats, EpisodeStep};
 use burn::tensor::backend::Backend;
 use burn::{
@@ -10,15 +8,16 @@ use burn::{
 };
 
 use super::OPTIMIZER_EPSILON;
+use crate::ml::multiagent::get_global_device;
 use crate::MyAutodiffBackend;
-
+use burn::record::{BinBytesRecorder, FullPrecisionSettings, Recorder};
+use burn::tensor::backend::AutodiffBackend;
 use burn::tensor::Device;
 use std::cell::RefCell;
 use std::marker::PhantomData;
 use std::rc::Rc;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::spawn_local;
-
 // ─────────────────────────────────────────────
 // POLICY NETWORK  (8 → 12 → 1, sigmoid output)
 // ─────────────────────────────────────────────
@@ -51,6 +50,11 @@ impl<B: Backend> FlappyNet<B> {
         let x = self.linear1.forward(x);
         let x = self.activation.forward(x);
         sigmoid(self.linear2.forward(x))
+    }
+    pub fn weights_to_bytes(&self) -> Vec<u8> {
+        BinBytesRecorder::<FullPrecisionSettings>::default()
+            .record(self.clone().into_record(), ())
+            .expect("failed to serialize weights")
     }
 }
 pub type Net = FlappyNet<MyAutodiffBackend>;
