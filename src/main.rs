@@ -178,7 +178,7 @@ fn check_in_bounds(
 
             match gamemode.0 {
                 GameMode::Train { .. } => {
-                    commands.trigger(BirdDeath { bird: entity });
+                    commands.entity(e).insert(Dead);
                 }
                 GameMode::Play { .. } => {
                     commands.trigger(EndGame);
@@ -278,7 +278,6 @@ fn check_collisions(
             if bird_collider.intersects(&pipe_collider) {
                 match gamemode.0 {
                     GameMode::Train { .. } => {
-                        commands.entity(e).insert(Dead);
                         commands.entity(e).insert(PipeDeath);
                     }
                     _ => {
@@ -318,10 +317,10 @@ fn on_score(
     mut score: ResMut<Score>,
     mut text: Query<&mut Text, With<ScoreText>>,
 ) {
-    if let Ok(mut bird) = birds.get_mut(e.entity) {
+    if let Ok(mut bird) = birds.get_mut(e.bird) {
         bird.score += 1;
+        score.0 = bird.score;
     }
-    score.0 += 1;
     for mut t in &mut text {
         t.0 = score.0.to_string();
     }
@@ -349,7 +348,16 @@ fn on_bird_jump(event: On<BirdJump>, mut velocities: Query<&mut Velocity, With<B
     }
 }
 
-fn endgame<E: EndsGame>(_: On<E>, mut commands: Commands) {}
+fn endgame<E: EndsGame>(
+    _: On<E>,
+    mut commands: Commands,
+    mut moves: Query<Entity, With<Transform>>,
+) {
+    for e in moves {
+        commands.entity(e).despawn();
+    }
+    commands.trigger(BeginGame);
+}
 
 //debug helper
 fn set_time_scale(mut time: ResMut<Time<Virtual>>) {

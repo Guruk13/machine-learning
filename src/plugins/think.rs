@@ -3,8 +3,8 @@ use crate::ml::agent_utils::{Action, GameStateFeatures, RewardPrizes};
 use crate::ml::model::Net;
 use crate::ml::multiagent::AMRessource;
 use crate::player::{
-    Bird, BirdInventory, BirdJump, GameSets, Lifetime, Opacity, PipeBottom, PipeTop, Player,
-    Velocity,
+    Bird, BirdInventory, BirdJump, Dead, GameSets, IndividualScore, Lifetime, Opacity, PipeBottom,
+    PipeDeath, PipeTop, Player, Velocity,
 };
 
 use crate::ReplacementState;
@@ -54,8 +54,9 @@ fn think(
             &Transform,
             &Velocity,
             &Aabb,
-            &Lifetime,
-            &mut Opacity,
+            Has<Dead>,
+            Has<PipeDeath>,
+            Ref<IndividualScore>,
         ),
         (With<Bird>, Without<Player>, Changed<Transform>),
     >,
@@ -71,7 +72,8 @@ fn think(
     //let denom = (n.saturating_sub(1)).max(1) as f32; // avoid divide by zero when N == 1
     //let _rank = agent.stats.rank as f32;
     //opacity.value = 100.0 * (1.0 - rank / denom);
-    for (entity, bird, transform, velocity, bird_aabb, _lifetime, _opacity) in all_birds.iter_mut()
+    for (entity, bird, transform, velocity, bird_aabb, dead, pipe_death, score) in
+        all_birds.iter_mut()
     {
         let calculated_velocity = Vec2::new(PIPE_SPEED, velocity.0).to_angle();
         let bird_x = transform.translation.x;
@@ -138,24 +140,23 @@ fn think(
         } else {
             0.0
         };
-        if bird.score % 15 == 0 && bird.score != 0 && bird.score != agent.state.score {
-            #[cfg(target_arch = "wasm32")]
-            web_sys::console::log_1(
-                &format!("{:?} {:?}, {:?}", bird.score, bird.uid, agent.settings).into(),
-            );
-            agent.state.score = bird.score;
-            let model = agent.get_model();
-            //
-            let bytes = model.borrow().weights_to_bytes();
-            #[cfg(target_arch = "wasm32")]
-            download_bytes(
-                &bytes,
-                &format!("flappy_score{}_{}.bin", bird.score, bird.uid),
-            );
-        }
-        if bird.score > agent.state.score {
+
+        if score.is_changed() && !score.is_added() {
+            if score.0 % 15 == 0 {
+                #[cfg(target_arch = "wasm32")]
+                web_sys::console::log_1(
+                    &format!("{:?} {:?}, {:?}", score.0, bird.uid, agent.settings).into(),
+                );
+                agent.state.score = score.0;
+                let model = agent.get_model();
+                //
+                let bytes = model.borrow().weights_to_bytes();
+                #[cfg(target_arch = "wasm32")]
+                download_bytes(&bytes, &format!("flappy_score{}_{}.bin", score.0, bird.uid));
+            }
+
             reward += RewardPrizes::default().pipe_cleared;
-            agent.state.score = bird.score;
+            agent.state.score = score.0;
         }
 
         let alive = RewardPrizes::default().alive;
@@ -198,7 +199,7 @@ fn think(
     //Gamestate has been processed , process bird's agent  stats
     let birds_dead: Vec<_> = all_birds
         .iter()
-        .filter(|(_, bird, _, _, _, _, _)| bird.dead)
+        .filter(|(_, _, _, _, _, dead, pipe_death, _)| *dead || *pipe_death)
         .collect();
 
     for bird in &birds_dead {

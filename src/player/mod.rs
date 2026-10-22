@@ -1,6 +1,7 @@
 use crate::ml::agent_utils::Action;
 use crate::CANVAS_SIZE;
 use crate::PLAYER_SIZE;
+use bevy::ecs::query::AccessConflicts::Individual;
 use bevy::prelude::*;
 use bevy::reflect::set::Set;
 
@@ -23,6 +24,9 @@ pub struct PipeDeath;
 pub struct Opacity {
     pub value: f32,
 }
+
+#[derive(Component, Debug)]
+pub struct IndividualScore(pub u32);
 
 #[derive(Event)]
 pub struct ScorePoint {
@@ -49,7 +53,6 @@ pub struct Bird {
     pub pending: PendingActions,
     pub uid: u8,
     pub dead: bool,
-    pub score: u32,
     pub pipe_death: bool,
 }
 
@@ -67,7 +70,7 @@ impl Bird {
         asset_server: &AssetServer,
         id: u8,
         opacity: f32,
-    ) -> (Bird, Sprite, Transform, Lifetime) {
+    ) -> (Bird, Sprite, IndividualScore, Transform, Lifetime) {
         let alpha = (opacity / 100.0).clamp(0.0, 1.0);
         let color: Color = Srgba::hex("#282828").unwrap().with_alpha(alpha).into();
 
@@ -75,7 +78,6 @@ impl Bird {
             Bird {
                 uid: id,
                 dead: false,
-                score: 0,
                 pipe_death: false,
                 pending: PendingActions::default(),
             },
@@ -85,6 +87,7 @@ impl Bird {
                 color: color,
                 ..default()
             },
+            IndividualScore(0),
             Transform::from_xyz(-CANVAS_SIZE.x / 4.0, 0.0, 1.0),
             Lifetime::default(),
         )
