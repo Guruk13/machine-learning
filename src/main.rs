@@ -68,7 +68,6 @@ async fn async_main() {
         .add_systems(
             Update,
             (
-                best_bird,
                 enforce_bird_direction,
                 toggle_pause,
                 controls
@@ -178,7 +177,7 @@ fn check_in_bounds(
 
             match gamemode.0 {
                 GameMode::Train { .. } => {
-                    commands.entity(e).insert(Dead);
+                    commands.entity(entity).insert(Dead);
                 }
                 GameMode::Play { .. } => {
                     commands.trigger(EndGame);
@@ -313,25 +312,16 @@ fn check_collisions(
 
 fn on_score(
     e: On<ScorePoint>,
-    mut birds: Query<&mut Bird>,
+    mut birds: Query<(Entity, &mut IndividualScore), With<IndividualScore>>,
     mut score: ResMut<Score>,
     mut text: Query<&mut Text, With<ScoreText>>,
 ) {
     if let Ok(mut bird) = birds.get_mut(e.bird) {
-        bird.score += 1;
-        score.0 = bird.score;
+        bird.1 .0 += 1;
+        score.0 = bird.1 .0;
     }
     for mut t in &mut text {
         t.0 = score.0.to_string();
-    }
-}
-
-pub fn best_bird(bird_query: Query<&Bird>, mut query: Query<&mut Text, With<ScoreText>>) {
-    let best_score = bird_query.iter().map(|bird| bird.score).max();
-    for mut span in &mut query {
-        if let Some(highest) = best_score {
-            span.0 = highest.to_string();
-        }
     }
 }
 

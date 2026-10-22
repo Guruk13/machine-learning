@@ -31,8 +31,11 @@ impl Plugin for PipePlugin {
     }
 }
 fn on_score(e: On<ScorePoint>, birds: Query<&mut Bird>, mut pointgates: Query<&mut PointsGate>) {
-    let mut gate = pointgates.get_mut(e.gate).unwrap();
-    gate.has_scored.push(birds.get(e.bird).unwrap().uid);
+    pointgates
+        .get_mut(e.gate)
+        .unwrap()
+        .has_scored
+        .push(birds.get(e.bird).unwrap().uid);
 }
 
 fn spawn_pipes(mut commands: Commands, asset_server: Res<AssetServer>, time: Res<Time>) {

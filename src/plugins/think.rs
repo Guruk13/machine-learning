@@ -3,12 +3,13 @@ use crate::ml::agent_utils::{Action, GameStateFeatures, RewardPrizes};
 use crate::ml::model::Net;
 use crate::ml::multiagent::AMRessource;
 use crate::player::{
-    Bird, BirdInventory, BirdJump, Dead, GameSets, IndividualScore, Lifetime, Opacity, PipeBottom,
-    PipeDeath, PipeTop, Player, Velocity,
+    Bird, BirdInventory, BirdJump, Dead, GameSets, IndividualScore, PipeBottom, PipeDeath, PipeTop,
+    Player, Velocity,
 };
 
 use crate::ReplacementState;
-use crate::{BeginGame, RegistrySnapshot};
+use crate::{EndGame, RegistrySnapshot};
+
 use bevy::camera::primitives::Aabb;
 use bevy::prelude::*;
 use std::collections::HashMap;
@@ -130,16 +131,14 @@ fn think(
         let mut agent = am_ressource.agent_manager.inner[&bird.uid].borrow_mut();
 
         //compute reward
-        let mut reward: f32 = if bird.dead {
-            //dying soon is shameful
-            if bird.pipe_death {
-                RewardPrizes::default().pipe_death
-            } else {
-                RewardPrizes::default().dying
-            }
-        } else {
-            0.0
-        };
+        let mut reward: f32 = 0.0;
+        //dying soon is shameful
+        if *pipe_death {
+            reward += RewardPrizes::default().pipe_death;
+        }
+        if *dead {
+            reward += RewardPrizes::default().dying
+        }
 
         if score.is_changed() && !score.is_added() {
             if score.0 % 15 == 0 {
@@ -159,8 +158,6 @@ fn think(
             agent.state.score = score.0;
         }
 
-        let alive = RewardPrizes::default().alive;
-
         let in_zone = {
             let lo = if nearest_bot.exists {
                 state.next_pipe_bottom_y
@@ -176,7 +173,7 @@ fn think(
         };
 
         if in_zone {
-            reward += alive;
+            reward += RewardPrizes::default().alive;
         }
 
         let action = agent.select_action();
@@ -236,7 +233,6 @@ pub fn run_forwards_and_optims(
             }
 
             *replacement.borrow_mut() = ReplacementState::Descending;
-
             // every agent descends on its own episode
             let agents: Vec<_> = am_ressource.agent_manager.inner.values().cloned().collect();
             let replacement_task = replacement.clone();
@@ -353,7 +349,7 @@ pub fn run_forwards_and_optims(
             live_inventory.0 = finalized.clone();
             registry.0.clear();
             *replacement.borrow_mut() = ReplacementState::Idle;
-            commands.trigger(BeginGame);
+            commands.trigger(EndGame);
         }
     }
 }
@@ -361,7 +357,6 @@ pub fn no_birds_in_main_system(
     alive: Query<&Bird>,
     live_inventory: Res<BirdInventory>,
     am_ressource: NonSend<AMRessource>,
-    _commands: Commands,
 ) -> bool {
     let mut no_actions_in_flight = true;
 

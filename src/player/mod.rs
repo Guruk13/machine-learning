@@ -1,12 +1,8 @@
-use crate::ml::agent_utils::Action;
 use crate::CANVAS_SIZE;
 use crate::PLAYER_SIZE;
-use bevy::ecs::query::AccessConflicts::Individual;
 use bevy::prelude::*;
-use bevy::reflect::set::Set;
 
 use std::collections::HashSet;
-use std::collections::VecDeque;
 #[derive(Component)]
 pub struct Gravity(pub f32);
 
@@ -20,10 +16,6 @@ pub struct Player;
 pub struct Dead;
 #[derive(Component, Debug)]
 pub struct PipeDeath;
-#[derive(Component, Debug)]
-pub struct Opacity {
-    pub value: f32,
-}
 
 #[derive(Component, Debug)]
 pub struct IndividualScore(pub u32);
@@ -50,7 +42,6 @@ pub enum GameSets {
 #[derive(Component, Debug)]
 #[require(Gravity(1000.), Velocity)]
 pub struct Bird {
-    pub pending: PendingActions,
     pub uid: u8,
     pub dead: bool,
     pub pipe_death: bool,
@@ -79,7 +70,6 @@ impl Bird {
                 uid: id,
                 dead: false,
                 pipe_death: false,
-                pending: PendingActions::default(),
             },
             Sprite {
                 custom_size: Some(Vec2::splat(PLAYER_SIZE)),
@@ -97,10 +87,6 @@ impl Bird {
 #[derive(Resource, Default, Reflect)]
 pub struct BirdInventory(pub HashSet<u8>);
 
-#[derive(Debug, Component, Clone, Copy, PartialEq, Eq)]
-pub enum Flag {
-    Dead, // @todo use this instead of  Bird state
-}
 #[derive(Component)]
 pub struct Pipe;
 
@@ -114,9 +100,6 @@ pub struct PipeBottom;
 pub struct PointsGate {
     pub has_scored: Vec<u8>,
 }
-
-#[derive(Component, Default, Debug)]
-pub struct PendingActions(pub VecDeque<Action>);
 
 #[derive(Component, Debug, Default)]
 pub struct Lifetime {
