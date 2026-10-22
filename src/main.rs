@@ -39,10 +39,19 @@ async fn async_main() {
     set_global_device(device.clone()); // still needed for code outside Bevy
 
     App::new()
+        // Plugins
+        .add_plugins(DefaultPlugins)
+        .add_plugins((
+            PipePlugin,
+            BrainPlugin,
+            Material2dPlugin::<BackgroundMaterial>::default(),
+        ))
+        // Resources
         .insert_resource(BurnDevice(device))
-        .init_resource::<Score>()
         .insert_resource(BirdInventory(HashSet::new()))
         .insert_resource(GamemodeResource(GameMode::train()))
+        .init_resource::<Score>()
+        // Set order
         .configure_sets(
             FixedUpdate,
             (
@@ -53,52 +62,33 @@ async fn async_main() {
             )
                 .chain(),
         )
-        .add_plugins(DefaultPlugins)
-        .add_plugins((
-            PipePlugin,
-            Material2dPlugin::<BackgroundMaterial>::default(),
-        ))
-        .add_systems(Startup, (startup))
-        .add_systems(
-            FixedUpdate,
-            (gravity, check_in_bounds, check_collisions).chain(),
-        )
+        // Startup
+        .add_systems(Startup, (startup, set_time_scale))
+        // Update
         .add_systems(
             Update,
             (
-                //score_update.run_if(resource_changed::<Score>),
                 best_bird,
                 enforce_bird_direction,
+                toggle_pause,
+                controls
+                    .run_if(any_with_component::<Player>)
+                    .in_set(GameSets::Input),
             ),
         )
-        .add_observer(on_bird_jump)
-        .add_observer(|_trigger: On<ScorePoint>, mut score: ResMut<Score>| {
-            score.0 += 1;
-        })
-        // Input
-        .add_systems(
-            Update,
-            controls
-                .run_if(any_with_component::<Player>)
-                .in_set(GameSets::Input),
-        )
-        // Game
+        // FixedUpdate
         .add_systems(
             FixedUpdate,
-            (gravity, check_in_bounds, check_collisions)
-                .chain()
-                .in_set(GameSets::Game),
+            (gravity, check_in_bounds, check_collisions).in_set(GameSets::Game),
         )
-        .add_systems(
-            FixedPostUpdate,
-            (ApplyDeferred, despawn_deads)
-                .chain()
-                .in_set(GameSets::Cleanup),
-        )
-        .add_systems(Startup, set_time_scale)
-        .add_systems(Update, toggle_pause)
-        // AI
-        .add_plugins(BrainPlugin)
+        // FixedPostUpdate
+        .add_systems(FixedPostUpdate, (despawn_deads).in_set(GameSets::Cleanup))
+        // Observers
+        .add_observer(spawn_birds)
+        .add_observer(endgame::<SwitchGamemode>)
+        .add_observer(endgame::<EndGame>)
+        .add_observer(on_bird_jump)
+        .add_observer(on_score)
         .run();
 }
 
@@ -220,6 +210,7 @@ fn handle_endgame(
 }
 
 fn spawn_birds(
+    event: On<BeginGame>,
     mut commands: Commands,
     asset_server: Res<AssetServer>,
     gamemode: Res<GamemodeResource>,
@@ -263,9 +254,10 @@ fn check_collisions(
     mut pipe_gaps: Query<(&Sprite, Entity, &mut PointsGate), With<PointsGate>>,
     mut gizmos: Gizmos,
     transform_helper: TransformHelper,
+    gamemode: Res<GamemodeResource>,
 ) -> Result<()> {
-    for mut bird in birds.iter_mut() {
-        let bird_transform = transform_helper.compute_global_transform(bird.0)?;
+    for (mut e, mut bird, player) in birds.iter_mut() {
+        let bird_transform = transform_helper.compute_global_transform(e)?;
         let bird_collider =
             BoundingCircle::new(bird_transform.translation().xy(), PLAYER_SIZE / 2.);
 
@@ -284,13 +276,14 @@ fn check_collisions(
                 RED_400,
             );
             if bird_collider.intersects(&pipe_collider) {
-                //is_player
-                if bird.2 {
-                    //commands.trigger(EndGame);
-                } else {
-                    bird.1.dead = true;
-                    bird.1.pipe_death = true;
-                    commands.trigger(BirdDeath { bird: bird.0 });
+                match gamemode.0 {
+                    GameMode::Train { .. } => {
+                        commands.entity(e).insert(Dead);
+                        commands.entity(e).insert(PipeDeath);
+                    }
+                    _ => {
+                        commands.trigger(EndGame);
+                    }
                 }
             }
         }
@@ -308,41 +301,38 @@ fn check_collisions(
                 RED_400,
             );
 
-            if bird_collider.intersects(&gap_collider) & !pointgate.has_scored.contains(&bird.1.uid)
-            {
-                //commands.trigger(ScorePoint { bird: bird.0 });
-                bird.1.score = bird.1.score + 1;
-                pointgate.has_scored.push(bird.1.uid)
+            if bird_collider.intersects(&gap_collider) & !pointgate.has_scored.contains(&bird.uid) {
+                commands.trigger(ScorePoint {
+                    bird: e,
+                    gate: entity,
+                });
             }
         }
     }
     Ok(())
 }
 
-fn _score_update(mut query: Query<&mut Text, With<ScoreText>>, score: Res<Score>) {
-    for mut span in &mut query {
-        span.0 = score.0.to_string();
+fn on_score(
+    e: On<ScorePoint>,
+    mut birds: Query<&mut Bird>,
+    mut score: ResMut<Score>,
+    mut text: Query<&mut Text, With<ScoreText>>,
+) {
+    if let Ok(mut bird) = birds.get_mut(e.entity) {
+        bird.score += 1;
+    }
+    score.0 += 1;
+    for mut t in &mut text {
+        t.0 = score.0.to_string();
     }
 }
+
 pub fn best_bird(bird_query: Query<&Bird>, mut query: Query<&mut Text, With<ScoreText>>) {
     let best_score = bird_query.iter().map(|bird| bird.score).max();
     for mut span in &mut query {
         if let Some(highest) = best_score {
             span.0 = highest.to_string();
         }
-    }
-}
-
-#[derive(Asset, TypePath, AsBindGroup, Debug, Clone)]
-pub struct BackgroundMaterial {
-    #[texture(0)]
-    #[sampler(1)]
-    pub color_texture: Handle<Image>,
-}
-
-impl Material2d for BackgroundMaterial {
-    fn fragment_shader() -> ShaderRef {
-        "background.wgsl".into()
     }
 }
 
@@ -359,12 +349,8 @@ fn on_bird_jump(event: On<BirdJump>, mut velocities: Query<&mut Velocity, With<B
     }
 }
 
-fn on_switch_gamemode(event: On<SwitchGamemode>, mut commands: Commands) {
-    match event.0 {
-        GameMode::Demo { .. } => {}
-        GameMode::Play { .. } => {}
-        GameMode::Train { .. } => {}
-    }
+fn endgame<E: EndsGame>(_: On<E>, mut commands: Commands) {
+    // shared logic
 }
 
 //debug helper
@@ -378,5 +364,17 @@ fn toggle_pause(mut time: ResMut<Time<Virtual>>, keys: Res<ButtonInput<KeyCode>>
         } else {
             time.pause();
         }
+    }
+}
+#[derive(Asset, TypePath, AsBindGroup, Debug, Clone)]
+pub struct BackgroundMaterial {
+    #[texture(0)]
+    #[sampler(1)]
+    pub color_texture: Handle<Image>,
+}
+
+impl Material2d for BackgroundMaterial {
+    fn fragment_shader() -> ShaderRef {
+        "background.wgsl".into()
     }
 }

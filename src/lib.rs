@@ -57,5 +57,9 @@ impl GameMode {
 #[derive(Resource, Reflect)]
 pub struct GamemodeResource(pub GameMode);
 
+pub trait EndsGame: Event {}
+impl EndsGame for SwitchGamemode {}
+impl EndsGame for EndGame {}
+
 #[derive(Event)]
 pub struct SwitchGamemode(pub GameMode);

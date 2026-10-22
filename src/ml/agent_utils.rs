@@ -13,22 +13,7 @@ pub struct EpisodeStep {
 /// Rolling statistics for one agent.
 #[derive(Debug, Copy, Clone)]
 pub struct AgentStats {
-    // ── Entropy tracking ──────────────────────────────────────────────────
-    /// EMA of normalised policy entropy (α = 0.1 by default).
-    pub entropy_ema: f32,
-    /// How many consecutive episodes entropy has been outside healthy range.
-    pub entropy_violation_streak: u32,
-
-    // ── Score tracking ────────────────────────────────────────────────────
-    /// EMA of episode total return (α = 0.05 by default).
-    pub score_ema: f32,
-    /// How many consecutive episodes the score has been below floor.
-    pub score_violation_streak: u32,
-
-    /// Total episodes recorded.
     pub episodes: u64,
-
-    pub entropy_sum: f32,
     pub total_score: f32,
     pub total_episodes: u64,
     pub rank: u32,
@@ -38,12 +23,7 @@ pub struct AgentStats {
 impl AgentStats {
     pub fn new(total_episodes: Option<u64>) -> Self {
         Self {
-            entropy_ema: 1.0, // start at max entropy (uninitialised)
-            entropy_violation_streak: 0,
-            score_ema: 0.0,
-            score_violation_streak: 0,
             episodes: 0,
-            entropy_sum: 0.0,
             total_score: 0.,
             total_episodes: total_episodes.unwrap_or(0),
             rank: 0,
@@ -95,7 +75,6 @@ pub struct AgentState {
     pub is_dead: bool,
     pub current_gamestate: Option<GameStateFeatures>,
     pub episode: Vec<EpisodeStep>, //@ref
-
     pub score: u32,
 }
 

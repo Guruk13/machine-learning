@@ -2,6 +2,7 @@ use crate::ml::agent_utils::Action;
 use crate::CANVAS_SIZE;
 use crate::PLAYER_SIZE;
 use bevy::prelude::*;
+use bevy::reflect::set::Set;
 
 use std::collections::HashSet;
 use std::collections::VecDeque;
@@ -17,6 +18,8 @@ pub struct Player;
 #[derive(Component, Debug)]
 pub struct Dead;
 #[derive(Component, Debug)]
+pub struct PipeDeath;
+#[derive(Component, Debug)]
 pub struct Opacity {
     pub value: f32,
 }
@@ -24,6 +27,7 @@ pub struct Opacity {
 #[derive(Event)]
 pub struct ScorePoint {
     pub bird: Entity,
+    pub gate: Entity,
 }
 
 #[derive(Resource, Default)]

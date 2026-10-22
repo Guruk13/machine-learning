@@ -1,4 +1,4 @@
-use crate::player::{Pipe, PipeBottom, PipeTop, PointsGate};
+use crate::player::{Bird, Pipe, PipeBottom, PipeTop, PointsGate, ScorePoint};
 use crate::EndGame;
 use bevy::camera::primitives::Aabb;
 use bevy::{image::ImageLoaderSettings, prelude::*, time::common_conditions::on_timer};
@@ -25,10 +25,14 @@ impl Plugin for PipePlugin {
                 spawn_pipes.run_if(on_timer(Duration::from_millis(1000))),
             ),
         )
-
+        .add_observer(on_score)
        .add_observer(clear_pipes) // register the observer
         ;
     }
+}
+fn on_score(e: On<ScorePoint>, birds: Query<&mut Bird>, mut pointgates: Query<&mut PointsGate>) {
+    let mut gate = pointgates.get_mut(e.gate).unwrap();
+    gate.has_scored.push(birds.get(e.bird).unwrap().uid);
 }
 
 fn spawn_pipes(mut commands: Commands, asset_server: Res<AssetServer>, time: Res<Time>) {
