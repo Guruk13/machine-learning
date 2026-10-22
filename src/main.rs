@@ -349,9 +349,7 @@ fn on_bird_jump(event: On<BirdJump>, mut velocities: Query<&mut Velocity, With<B
     }
 }
 
-fn endgame<E: EndsGame>(_: On<E>, mut commands: Commands) {
-    // shared logic
-}
+fn endgame<E: EndsGame>(_: On<E>, mut commands: Commands) {}
 
 //debug helper
 fn set_time_scale(mut time: ResMut<Time<Virtual>>) {
