@@ -1,7 +1,6 @@
 use bevy::prelude::*;
 use burn::backend::wgpu::Wgpu;
 use burn::backend::Autodiff;
-use std::collections::HashSet;
 pub mod ml;
 pub mod player;
 pub mod plugins;
@@ -13,14 +12,13 @@ pub use plugins::*;
 pub struct BeginGame;
 #[derive(Event)]
 pub struct EndGame;
-type RegistrySnapshot = HashSet<u8>;
 
 #[derive(Clone)]
 pub enum ReplacementState {
     Idle,
     Descending,
     Replacing,
-    Ready(RegistrySnapshot),
+    Ready,
 }
 type MyBackend = Wgpu<f32, i32>;
 pub type MyAutodiffBackend = Autodiff<MyBackend>;

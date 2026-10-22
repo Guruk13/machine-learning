@@ -3,12 +3,11 @@ use crate::ml::agent_utils::{Action, GameStateFeatures, RewardPrizes};
 use crate::ml::model::Net;
 use crate::ml::multiagent::AMRessource;
 use crate::player::{
-    Bird, BirdInventory, BirdJump, Dead, GameSets, IndividualScore, PipeBottom, PipeDeath, PipeTop,
-    Player, Velocity,
+    Bird, BirdJump, Dead, GameSets, IndividualScore, PipeBottom, PipeDeath, PipeTop, Player,
+    Velocity,
 };
-
 use crate::ReplacementState;
-use crate::{EndGame, RegistrySnapshot};
+use crate::{EndGame, EndsGame, GameMode, GamemodeResource, SwitchGamemode};
 
 use bevy::camera::primitives::Aabb;
 use bevy::prelude::*;
@@ -27,18 +26,25 @@ pub struct DeadBirdRegistry(pub HashSet<u8>);
 use crate::ml::multiagent::AgentManager;
 impl Plugin for BrainPlugin {
     fn build(&self, app: &mut App) {
+        app.configure_sets(
+            FixedUpdate,
+            GameSets::AI.run_if(|m: Res<GamemodeResource>| {
+                matches!(m.0, GameMode::Train { .. } | GameMode::Demo { .. })
+            }),
+        );
         app.add_systems(
             FixedUpdate,
             (
-                ApplyDeferred,
                 think,
                 run_forwards_and_optims.run_if(no_birds_in_main_system),
             )
                 .chain()
                 .in_set(GameSets::AI),
-        )
-        .insert_resource(DeadBirdRegistry(HashSet::new()))
-        .insert_non_send(AMRessource {
+        );
+        app.insert_resource(DeadBirdRegistry(HashSet::new()));
+
+        app.add_observer(endgame::<SwitchGamemode>);
+        app.insert_non_send(AMRessource {
             agent_manager: AgentManager::new(),
             replacement: Rc::new(RefCell::new(ReplacementState::Idle)),
         });
@@ -181,9 +187,7 @@ fn think(
         match action {
             Action::DoNothing => {}
             Action::Jump => {
-                if !bird.dead {
-                    commands.trigger(BirdJump(*entity));
-                }
+                commands.trigger(BirdJump(*entity));
             }
         }
 
@@ -210,7 +214,6 @@ fn think(
 pub fn run_forwards_and_optims(
     mut registry: ResMut<DeadBirdRegistry>,
     mut am_ressource: NonSendMut<AMRessource>,
-    mut live_inventory: ResMut<BirdInventory>,
     mut commands: Commands,
 ) {
     thread_local! {
@@ -236,21 +239,18 @@ pub fn run_forwards_and_optims(
             // every agent descends on its own episode
             let agents: Vec<_> = am_ressource.agent_manager.inner.values().cloned().collect();
             let replacement_task = replacement.clone();
-            let registry_snapshot: RegistrySnapshot = registry.0.clone();
             //
             EPOCH.with(|e| e.set(e.get() + 1));
             let epoch = EPOCH.with(|e| e.get());
             let cull_epoch = epoch > 0 && epoch.is_multiple_of(CULL_EVERY);
 
             spawn_local(async move {
-                let mut _total = 0.0f32;
                 let _n = agents.len() as f32;
                 for a in agents.iter() {
                     if a.borrow().state.episode.is_empty() {
                         continue;
                     }
-
-                    _total += a.borrow_mut().update_policy().await;
+                    let _loss = a.borrow_mut().update_policy().await;
 
                     a.borrow_mut().agent_clear_episode();
                     if !cull_epoch {
@@ -260,7 +260,7 @@ pub fn run_forwards_and_optims(
 
                 if !cull_epoch {
                     let replacement_task = replacement.clone();
-                    *replacement_task.borrow_mut() = ReplacementState::Ready(registry_snapshot);
+                    *replacement_task.borrow_mut() = ReplacementState::Ready;
                 } else {
                     *replacement_task.borrow_mut() = ReplacementState::Replacing;
                 }
@@ -337,27 +337,21 @@ pub fn run_forwards_and_optims(
                 }
                 Some(false) => {}
                 Some(true) => {
-                    let registry_snapshot: RegistrySnapshot = registry.0.clone();
                     let replacement_task = replacement.clone();
-                    *replacement_task.borrow_mut() = ReplacementState::Ready(registry_snapshot);
+                    *replacement_task.borrow_mut() = ReplacementState::Ready;
                     done.set(None);
                 }
             }
         }
 
-        ReplacementState::Ready(finalized) => {
-            live_inventory.0 = finalized.clone();
+        ReplacementState::Ready => {
             registry.0.clear();
             *replacement.borrow_mut() = ReplacementState::Idle;
             commands.trigger(EndGame);
         }
     }
 }
-pub fn no_birds_in_main_system(
-    alive: Query<&Bird>,
-    live_inventory: Res<BirdInventory>,
-    am_ressource: NonSend<AMRessource>,
-) -> bool {
+pub fn no_birds_in_main_system(alive: Query<&Bird>, am_ressource: NonSend<AMRessource>) -> bool {
     let mut no_actions_in_flight = true;
 
     for (_id, agent) in am_ressource.agent_manager.inner.iter() {
@@ -381,16 +375,19 @@ pub fn no_birds_in_main_system(
         }
     }
 
-    alive.is_empty() && live_inventory.0.is_empty() && no_actions_in_flight
+    alive.is_empty() && no_actions_in_flight
 }
-#[derive(Component, Default, Clone, Copy)]
-pub struct PartialReward(pub f32);
 
-impl std::ops::Sub<f32> for PartialReward {
-    type Output = f32;
-    fn sub(self, rhs: f32) -> f32 {
-        self.0 - rhs
-    }
+fn endgame<E: EndsGame>(_e: On<E>, mut commands: Commands) {
+    commands.queue(|world: &mut World| {
+        world.remove_non_send::<AMRessource>();
+        world.insert_non_send(AMRessource {
+            agent_manager: AgentManager::new(),
+            replacement: Rc::new(RefCell::new(ReplacementState::Idle)),
+        });
+    });
+
+    commands.trigger(EndGame)
 }
 struct PipeEdgeInfo {
     //conendrum: there might be pipes , but no next pipes : hence exists

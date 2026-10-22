@@ -48,7 +48,6 @@ async fn async_main() {
         ))
         // Resources
         .insert_resource(BurnDevice(device))
-        .insert_resource(BirdInventory(HashSet::new()))
         .insert_resource(GamemodeResource(GameMode::train()))
         .init_resource::<Score>()
         // Set order
@@ -173,8 +172,6 @@ fn check_in_bounds(
         if transform.translation.y < -CANVAS_SIZE.y / 2.0 - PLAYER_SIZE
             || transform.translation.y > CANVAS_SIZE.y / 2.0 + PLAYER_SIZE
         {
-            bird.dead = true;
-
             match gamemode.0 {
                 GameMode::Train { .. } => {
                     commands.entity(entity).insert(Dead);
@@ -235,14 +232,10 @@ fn spawn_birds(
 
 fn despawn_deads(
     mut commands: Commands,
-    mut birdinv: ResMut<BirdInventory>,
-    birds: Query<(Entity, &Bird)>,
+    birds: Query<(Entity), Or<(With<Dead>, With<PipeDeath>)>>,
 ) {
-    for (entity, bird) in birds {
-        if bird.dead {
-            commands.entity(entity).despawn();
-            //pushed in think there's probably a way to implement a trait here
-        };
+    for e in birds {
+        commands.entity(e).despawn();
     }
 }
 

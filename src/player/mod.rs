@@ -2,7 +2,6 @@ use crate::CANVAS_SIZE;
 use crate::PLAYER_SIZE;
 use bevy::prelude::*;
 
-use std::collections::HashSet;
 #[derive(Component)]
 pub struct Gravity(pub f32);
 
@@ -43,8 +42,6 @@ pub enum GameSets {
 #[require(Gravity(1000.), Velocity)]
 pub struct Bird {
     pub uid: u8,
-    pub dead: bool,
-    pub pipe_death: bool,
 }
 
 #[derive(Event)]
@@ -66,11 +63,7 @@ impl Bird {
         let color: Color = Srgba::hex("#282828").unwrap().with_alpha(alpha).into();
 
         (
-            Bird {
-                uid: id,
-                dead: false,
-                pipe_death: false,
-            },
+            Bird { uid: id },
             Sprite {
                 custom_size: Some(Vec2::splat(PLAYER_SIZE)),
                 image: asset_server.load("bevy-bird.png"),
@@ -83,9 +76,6 @@ impl Bird {
         )
     }
 }
-
-#[derive(Resource, Default, Reflect)]
-pub struct BirdInventory(pub HashSet<u8>);
 
 #[derive(Component)]
 pub struct Pipe;
