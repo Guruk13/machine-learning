@@ -30,15 +30,7 @@ impl Plugin for BrainPlugin {
                 matches!(m.0, GameMode::Train { .. } | GameMode::Demo { .. })
             }),
         );
-        app.add_systems(
-            FixedUpdate,
-            (
-                think,
-                run_forwards_and_optims.run_if(no_birds_in_main_system),
-            )
-                .chain()
-                .in_set(GameSets::AI),
-        );
+        app.add_systems(FixedUpdate, (think,).chain().in_set(GameSets::AI));
         app.add_systems(
             PostUpdate,
             (run_forwards_and_optims.run_if(no_birds_in_main_system),)
@@ -149,7 +141,7 @@ fn think(
         }
 
         if score.is_changed() && !score.is_added() {
-            if score.0 % 15 == 0 {
+            if score.0 >= 15 {
                 #[cfg(target_arch = "wasm32")]
                 web_sys::console::log_1(
                     &format!("{:?} {:?}, {:?}", score.0, bird.uid, agent.settings).into(),

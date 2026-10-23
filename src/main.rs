@@ -48,7 +48,7 @@ async fn async_main() {
         ))
         // Resources
         .insert_resource(BurnDevice(device))
-        .insert_resource(GamemodeRessource(GameMode::play()))
+        .insert_resource(GamemodeRessource(GameMode::train()))
         .init_resource::<Score>()
         // Set order
         .configure_sets(
@@ -60,6 +60,12 @@ async fn async_main() {
                     .run_if(|m: Res<GamemodeRessource>| matches!(m.0, GameMode::Play { .. })),
                 GameSets::Cleanup,
             )
+                .chain(),
+        )
+        .configure_sets(
+            FixedPostUpdate,
+            (GameSets::Play
+                .run_if(|m: Res<GamemodeRessource>| matches!(m.0, GameMode::Play { .. })),)
                 .chain(),
         )
         // Startup
@@ -82,7 +88,16 @@ async fn async_main() {
             (gravity, check_in_bounds, check_collisions).in_set(GameSets::Game),
         )
         // FixedPostUpdate
-        .add_systems(FixedPostUpdate, (despawn_deads).in_set(GameSets::Cleanup))
+        .add_systems(
+            FixedPostUpdate,
+            ((
+                (despawn_deads).in_set(GameSets::Cleanup),
+                ApplyDeferred,
+                no_bird.in_set(GameSets::Play),
+            )
+                .chain(),)
+                .chain(),
+        )
         // Observers
         .add_observer(spawn_birds)
         .add_observer(endgame::<SwitchGamemode>)
@@ -229,6 +244,12 @@ fn despawn_deads(
         commands.entity(e).despawn();
     }
 }
+pub fn no_bird(alive: Query<&Bird>, mut commands: Commands) {
+    if !alive.is_empty() {
+        return;
+    }
+    commands.trigger(BeginGame);
+}
 
 fn check_collisions(
     mut commands: Commands,
@@ -318,23 +339,28 @@ fn enforce_bird_direction(mut birds: Query<(&mut Transform, &Velocity), With<Bir
 
 fn on_bird_jump(event: On<BirdJump>, mut velocities: Query<&mut Velocity, With<Bird>>) {
     if let Ok(mut velocity) = velocities.get_mut(event.0) {
-        velocity.0 = 300.;
+        velocity.0 = 500.;
     }
 }
 
 fn endgame<E: EndsGame>(
     _: On<E>,
     mut commands: Commands,
-    mut moves: Query<Entity, With<Transform>>,
+    mut moves: Query<Entity, Or<(With<Pipe>, With<Bird>)>>,
+    mut score: ResMut<Score>,
+    mut text: Query<&mut Text, With<ScoreText>>,
 ) {
     for e in moves {
         commands.entity(e).despawn();
+    }
+    for mut t in &mut text {
+        t.0 = String::from("0");
     }
 }
 
 //debug helper
 fn set_time_scale(mut time: ResMut<Time<Virtual>>) {
-    time.set_relative_speed(0.5); // 2x faster
+    time.set_relative_speed(1.0);
 }
 fn toggle_pause(mut time: ResMut<Time<Virtual>>, keys: Res<ButtonInput<KeyCode>>) {
     if keys.just_pressed(KeyCode::Space) {
