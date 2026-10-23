@@ -1,5 +1,4 @@
 use crate::player::{Bird, Pipe, PipeBottom, PipeTop, PointsGate, ScorePoint};
-use crate::EndGame;
 use bevy::camera::primitives::Aabb;
 use bevy::{image::ImageLoaderSettings, prelude::*, time::common_conditions::on_timer};
 use std::time::Duration;
@@ -25,9 +24,7 @@ impl Plugin for PipePlugin {
                 spawn_pipes.run_if(on_timer(Duration::from_millis(1000))),
             ),
         )
-        .add_observer(on_score)
-       .add_observer(clear_pipes) // register the observer
-        ;
+        .add_observer(on_score);
     }
 }
 fn on_score(e: On<ScorePoint>, birds: Query<&mut Bird>, mut pointgates: Query<&mut PointsGate>) {
@@ -119,12 +116,5 @@ fn despawn_pipes(mut commands: Commands, pipes: Query<(Entity, &Transform), With
         if transform.translation.x < -(CANVAS_SIZE.x / 2.0 + PIPE_SIZE.x) {
             commands.entity(entity).despawn();
         }
-    }
-}
-
-// Runs only when ClearPipes is triggered
-fn clear_pipes(_event: On<EndGame>, mut commands: Commands, pipes: Query<Entity, With<Pipe>>) {
-    for e in &pipes {
-        commands.entity(e).despawn();
     }
 }

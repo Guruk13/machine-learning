@@ -48,7 +48,7 @@ async fn async_main() {
         ))
         // Resources
         .insert_resource(BurnDevice(device))
-        .insert_resource(GamemodeResource(GameMode::train()))
+        .insert_resource(GamemodeRessource(GameMode::default()))
         .init_resource::<Score>()
         // Set order
         .configure_sets(
@@ -56,7 +56,8 @@ async fn async_main() {
             (
                 GameSets::Input,
                 GameSets::Game,
-                GameSets::AI,
+                GameSets::Play
+                    .run_if(|m: Res<GamemodeRessource>| matches!(m.0, GameMode::Play { .. })),
                 GameSets::Cleanup,
             )
                 .chain(),
@@ -71,7 +72,8 @@ async fn async_main() {
                 toggle_pause,
                 controls
                     .run_if(any_with_component::<Player>)
-                    .in_set(GameSets::Input),
+                    .in_set(GameSets::Input)
+                    .in_set(GameSets::Play),
             ),
         )
         // FixedUpdate
@@ -165,7 +167,7 @@ fn controls(
 fn check_in_bounds(
     mut birds: Query<(Entity, &Transform, &mut Bird), With<Bird>>,
     mut commands: Commands,
-    mut gamemode: Res<GamemodeResource>,
+    mut gamemode: Res<GamemodeRessource>,
 ) {
     // check each bird
     for (entity, transform, mut bird) in birds.iter_mut() {
@@ -186,30 +188,19 @@ fn check_in_bounds(
         }
     }
 }
-
-fn handle_endgame(
-    _: On<EndGame>,
-    mut commands: Commands,
-    player: Option<Single<Entity, With<Player>>>,
-    mut score: ResMut<Score>,
-) {
-    match player {
-        None => { /* not spawned yet, do nothing */ }
-        Some(player) => {
-            score.0 = 0;
-            commands.entity(*player).insert((
-                Transform::from_xyz(-CANVAS_SIZE.x / 4.0, 0.0, 1.0),
-                Velocity(0.),
-            ));
-        }
+pub fn no_birds_in_main_system(alive: Query<&Bird>, mut commands: Commands) {
+    if !alive.is_empty() {
+        return;
     }
+    commands.trigger(EndGame);
+    commands.trigger(BeginGame)
 }
 
 fn spawn_birds(
     event: On<BeginGame>,
     mut commands: Commands,
     asset_server: Res<AssetServer>,
-    gamemode: Res<GamemodeResource>,
+    gamemode: Res<GamemodeRessource>,
 ) {
     match gamemode.0 {
         GameMode::Demo { .. } => {}
@@ -246,7 +237,7 @@ fn check_collisions(
     mut pipe_gaps: Query<(&Sprite, Entity, &mut PointsGate), With<PointsGate>>,
     mut gizmos: Gizmos,
     transform_helper: TransformHelper,
-    gamemode: Res<GamemodeResource>,
+    gamemode: Res<GamemodeRessource>,
 ) -> Result<()> {
     for (mut e, mut bird, player) in birds.iter_mut() {
         let bird_transform = transform_helper.compute_global_transform(e)?;
@@ -339,7 +330,6 @@ fn endgame<E: EndsGame>(
     for e in moves {
         commands.entity(e).despawn();
     }
-    commands.trigger(BeginGame);
 }
 
 //debug helper

@@ -32,7 +32,7 @@ pub enum GameMode {
 impl GameMode {
     pub fn train() -> Self {
         GameMode::Train {
-            birdnumber: 10,
+            birdnumber: 9,
             opacity: 50.0,
         }
     }
@@ -49,9 +49,13 @@ impl GameMode {
         }
     }
 }
-
+impl Default for GameMode {
+    fn default() -> Self {
+        Self::train()
+    }
+}
 #[derive(Resource, Reflect)]
-pub struct GamemodeResource(pub GameMode);
+pub struct GamemodeRessource(pub GameMode);
 
 pub trait EndsGame: Event {}
 impl EndsGame for SwitchGamemode {}

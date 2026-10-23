@@ -35,7 +35,8 @@ pub enum GameSets {
     Input,   // read player/agent intentions
     Game,    // physics, collisions, bounds
     Cleanup, // despawn, respawn
-    AI,      // think, bind agent
+    AI,
+    Play,
 }
 
 #[derive(Component, Debug)]

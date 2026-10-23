@@ -7,7 +7,7 @@ use crate::player::{
     Velocity,
 };
 use crate::ReplacementState;
-use crate::{EndGame, EndsGame, GameMode, GamemodeResource, SwitchGamemode};
+use crate::{BeginGame, EndGame, EndsGame, GameMode, GamemodeRessource, SwitchGamemode};
 
 use bevy::camera::primitives::Aabb;
 use bevy::prelude::*;
@@ -21,14 +21,12 @@ use std::collections::HashSet;
 use std::rc::Rc;
 
 // to be able to run updates on every agent without cutting some agent's experience , store the birds here , then respawn once optimizations are through
-#[derive(Resource, Default)]
-pub struct DeadBirdRegistry(pub HashSet<u8>);
 use crate::ml::multiagent::AgentManager;
 impl Plugin for BrainPlugin {
     fn build(&self, app: &mut App) {
         app.configure_sets(
             FixedUpdate,
-            GameSets::AI.run_if(|m: Res<GamemodeResource>| {
+            GameSets::AI.run_if(|m: Res<GamemodeRessource>| {
                 matches!(m.0, GameMode::Train { .. } | GameMode::Demo { .. })
             }),
         );
@@ -41,7 +39,6 @@ impl Plugin for BrainPlugin {
                 .chain()
                 .in_set(GameSets::AI),
         );
-        app.insert_resource(DeadBirdRegistry(HashSet::new()));
 
         app.add_observer(endgame::<SwitchGamemode>);
         app.insert_non_send(AMRessource {
@@ -71,7 +68,6 @@ fn think(
     pipe_tops: Query<(&GlobalTransform, &Aabb), With<PipeTop>>,
     pipe_bottoms: Query<(&GlobalTransform, &Aabb), With<PipeBottom>>,
     mut am_ressource: NonSendMut<AMRessource>,
-    mut registry: ResMut<DeadBirdRegistry>,
 ) {
     let mut all_birds: Vec<_> = birds.iter_mut().collect();
     //linear distribution
@@ -204,7 +200,6 @@ fn think(
         .collect();
 
     for bird in &birds_dead {
-        registry.0.insert(bird.1.uid);
         am_ressource.agent_manager.inner[&bird.1.uid]
             .borrow_mut()
             .agent_finish_episode();
@@ -212,10 +207,18 @@ fn think(
 }
 //this function is end of the line for async works : it hands off major tensor tasks to wgpu worker before resuming them in another micro task loop
 pub fn run_forwards_and_optims(
-    mut registry: ResMut<DeadBirdRegistry>,
     mut am_ressource: NonSendMut<AMRessource>,
     mut commands: Commands,
+    gamemode: Res<GamemodeRessource>,
 ) {
+    match gamemode.0 {
+        GameMode::Demo { .. } => {
+            commands.trigger(BeginGame);
+            return;
+        }
+        _ => {}
+    }
+
     thread_local! {
         static DONE: Rc<Cell<Option<bool>>> = Rc::new(Cell::new(None));
         // incremented after each successful batch of descent
@@ -345,13 +348,20 @@ pub fn run_forwards_and_optims(
         }
 
         ReplacementState::Ready => {
-            registry.0.clear();
             *replacement.borrow_mut() = ReplacementState::Idle;
-            commands.trigger(EndGame);
+            commands.trigger(BeginGame);
         }
     }
 }
-pub fn no_birds_in_main_system(alive: Query<&Bird>, am_ressource: NonSend<AMRessource>) -> bool {
+pub fn no_birds_in_main_system(
+    alive: Query<&Bird>,
+    am_ressource: NonSend<AMRessource>,
+    mut commands: Commands,
+) -> bool {
+    if !alive.is_empty() {
+        return false;
+    }
+
     let mut no_actions_in_flight = true;
 
     for (_id, agent) in am_ressource.agent_manager.inner.iter() {
@@ -374,8 +384,11 @@ pub fn no_birds_in_main_system(alive: Query<&Bird>, am_ressource: NonSend<AMRess
             }
         }
     }
+    if no_actions_in_flight {
+        commands.trigger(EndGame);
+    }
 
-    alive.is_empty() && no_actions_in_flight
+    no_actions_in_flight
 }
 
 fn endgame<E: EndsGame>(_e: On<E>, mut commands: Commands) {
@@ -386,8 +399,6 @@ fn endgame<E: EndsGame>(_e: On<E>, mut commands: Commands) {
             replacement: Rc::new(RefCell::new(ReplacementState::Idle)),
         });
     });
-
-    commands.trigger(EndGame)
 }
 struct PipeEdgeInfo {
     //conendrum: there might be pipes , but no next pipes : hence exists
