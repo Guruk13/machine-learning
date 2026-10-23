@@ -48,7 +48,7 @@ async fn async_main() {
         ))
         // Resources
         .insert_resource(BurnDevice(device))
-        .insert_resource(GamemodeRessource(GameMode::default()))
+        .insert_resource(GamemodeRessource(GameMode::play()))
         .init_resource::<Score>()
         // Set order
         .configure_sets(

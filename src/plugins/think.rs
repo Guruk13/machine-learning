@@ -39,6 +39,12 @@ impl Plugin for BrainPlugin {
                 .chain()
                 .in_set(GameSets::AI),
         );
+        app.add_systems(
+            PostUpdate,
+            (run_forwards_and_optims.run_if(no_birds_in_main_system),)
+                .chain()
+                .in_set(GameSets::AI),
+        );
 
         app.add_observer(endgame::<SwitchGamemode>);
         app.insert_non_send(AMRessource {
