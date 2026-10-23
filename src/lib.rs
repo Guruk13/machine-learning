@@ -33,7 +33,7 @@ impl GameMode {
     pub fn train() -> Self {
         GameMode::Train {
             birdnumber: 9,
-            opacity: 50.0,
+            opacity: 70.0,
         }
     }
     pub fn play() -> Self {

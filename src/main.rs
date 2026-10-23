@@ -64,8 +64,12 @@ async fn async_main() {
         )
         .configure_sets(
             FixedPostUpdate,
-            (GameSets::Play
-                .run_if(|m: Res<GamemodeRessource>| matches!(m.0, GameMode::Play { .. })),)
+            (
+                GameSets::Cleanup,
+                GameSets::Play
+                    .run_if(|m: Res<GamemodeRessource>| matches!(m.0, GameMode::Play { .. })),
+                GameSets::AI,
+            )
                 .chain(),
         )
         // Startup
@@ -74,6 +78,7 @@ async fn async_main() {
         .add_systems(
             Update,
             (
+                switch_gamemode,
                 enforce_bird_direction,
                 toggle_pause,
                 controls
@@ -159,6 +164,35 @@ fn startup(
         })),
     ));
     commands.trigger(BeginGame);
+}
+
+const PLAY_TIMEOUT_SECS: f32 = 5.0;
+fn switch_gamemode(
+    mouse: Res<ButtonInput<MouseButton>>,
+    time: Res<Time>,
+    mut gamemode: ResMut<GamemodeRessource>,
+    mut last_click: Local<Option<f32>>,
+) {
+    let now = time.elapsed_secs(); // elapsed_seconds() on Bevy < 0.15
+
+    if mouse.just_pressed(MouseButton::Left) {
+        *last_click = Some(now); // every click refreshes the timer
+
+        // Any mode other than Play -> Play on click
+        if !matches!(gamemode.0, GameMode::Play { .. }) {
+            gamemode.0 = GameMode::play();
+        }
+    }
+
+    // Play -> Train if the last click was 5+ seconds ago
+    if matches!(gamemode.0, GameMode::Play { .. }) {
+        if let Some(t) = *last_click {
+            if now - t >= PLAY_TIMEOUT_SECS {
+                gamemode.0 = GameMode::train();
+                *last_click = None;
+            }
+        }
+    }
 }
 
 fn gravity(mut transforms: Query<(&mut Transform, &mut Velocity, &Gravity)>, time: Res<Time>) {

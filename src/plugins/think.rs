@@ -30,7 +30,7 @@ impl Plugin for BrainPlugin {
                 matches!(m.0, GameMode::Train { .. } | GameMode::Demo { .. })
             }),
         );
-        app.add_systems(FixedUpdate, (think,).chain().in_set(GameSets::AI));
+        app.add_systems(FixedUpdate, (think).chain().in_set(GameSets::AI));
         app.add_systems(
             PostUpdate,
             (run_forwards_and_optims.run_if(no_birds_in_main_system),)
