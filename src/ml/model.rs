@@ -20,7 +20,7 @@ use wasm_bindgen_futures::spawn_local;
 // ─────────────────────────────────────────────
 // POLICY NETWORK  (8 → 12 → 1, sigmoid output)
 // ─────────────────────────────────────────────
-#[derive(Module, Debug)]
+#[derive(Debug, Module)]
 pub struct FlappyNet<B: Backend> {
     linear1: Linear<MyAutodiffBackend>,
     linear2: Linear<MyAutodiffBackend>,

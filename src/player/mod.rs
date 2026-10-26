@@ -2,29 +2,29 @@ use crate::CANVAS_SIZE;
 use crate::PLAYER_SIZE;
 use bevy::prelude::*;
 
-#[derive(Component)]
+#[derive(Debug, Component)]
 pub struct Gravity(pub f32);
 
-#[derive(Component, Default, Debug)]
+#[derive(Debug, Component, Default)]
 pub struct Velocity(pub f32);
 
-#[derive(Component, Debug)]
+#[derive(Debug, Component)]
 pub struct Player;
 
-#[derive(Component, Debug)]
+#[derive(Debug, Component)]
 pub struct Dead;
-#[derive(Component, Debug)]
+#[derive(Debug, Component)]
 pub struct PipeDeath;
 
-#[derive(Component, Debug)]
+#[derive(Debug, Component)]
 pub struct IndividualScore(pub u32);
 
-#[derive(Resource, Default)]
+#[derive(Debug, Resource, Default)]
 pub struct Score(pub u32);
 
-#[derive(Component)]
+#[derive(Debug, Component)]
 pub struct ScoreText;
-#[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, SystemSet, Clone, PartialEq, Eq, Hash)]
 pub enum GameSets {
     Input,   // read player/agent intentions
     Game,    // physics, collisions, bounds
@@ -33,18 +33,18 @@ pub enum GameSets {
     Play,
 }
 
-#[derive(Component, Debug)]
+#[derive(Debug, Component)]
 #[require(Gravity(1000.), Velocity)]
 pub struct Bird {
     pub uid: u8,
 }
 
-#[derive(Event)]
+#[derive(Debug, Event)]
 pub struct BirdDeath {
     pub bird: Entity,
 }
 
-#[derive(EntityEvent)]
+#[derive(Debug, EntityEvent)]
 #[entity_event(propagate)]
 pub struct BirdJump(pub Entity);
 
@@ -72,21 +72,21 @@ impl Bird {
     }
 }
 
-#[derive(Component)]
+#[derive(Debug, Component)]
 pub struct Pipe;
 
-#[derive(Component)]
+#[derive(Debug, Component)]
 pub struct PipeTop;
 
-#[derive(Component)]
+#[derive(Debug, Component)]
 pub struct PipeBottom;
 
-#[derive(Component)]
+#[derive(Debug, Component)]
 pub struct PointsGate {
     pub has_scored: Vec<u8>,
 }
 
-#[derive(Component, Debug, Default)]
+#[derive(Debug, Component, Default)]
 pub struct Lifetime {
     pub ticks: u32,
 }

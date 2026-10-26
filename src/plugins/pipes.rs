@@ -11,7 +11,7 @@ pub const PIPE_SPEED: f32 = 150.0;
 
 pub struct PipePlugin;
 
-#[derive(Event)]
+#[derive(Debug, Event)]
 pub struct ClearPipes;
 
 impl Plugin for PipePlugin {

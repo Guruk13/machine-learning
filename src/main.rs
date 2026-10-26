@@ -1,5 +1,6 @@
 #![allow(warnings)]
 use bevy::{
+    asset::AssetMetaCheck,
     camera::ScalingMode,
     image::ImageAddressMode,
     math::bounding::{Aabb2d, BoundingCircle, IntersectsVolume},
@@ -24,7 +25,7 @@ use std::rc::Rc;
 use std::time::Duration;
 use std::{cell::RefCell, collections::HashSet};
 
-#[derive(Resource, Clone)]
+#[derive(Debug, Resource, Clone)]
 pub struct BurnDevice(pub WgpuDevice);
 fn main() {
     // sync main — just kicks off the async work and doesn't wait for it
@@ -41,7 +42,10 @@ async fn async_main() {
 
     App::new()
         // Plugins
-        .add_plugins(DefaultPlugins)
+        .add_plugins(DefaultPlugins.set(AssetPlugin {
+            meta_check: AssetMetaCheck::Never,
+            ..default()
+        }))
         .add_plugins((
             PipePlugin,
             BrainPlugin,
@@ -75,6 +79,7 @@ async fn async_main() {
         )
         // Startup
         .add_systems(Startup, (startup, set_time_scale))
+        //this exists because game may be stopped at "any" moment
         .add_systems(
             FixedPreUpdate,
             (
@@ -83,6 +88,9 @@ async fn async_main() {
                 read_messages::<SwitchGamemode>,
             ),
         )
+        .add_message::<BeginGame>()
+        .add_message::<EndGame>()
+        .add_message::<SwitchGamemode>()
         // Update
         .add_systems(
             Update,
@@ -109,8 +117,7 @@ async fn async_main() {
                 ApplyDeferred,
                 no_bird.in_set(GameSets::Play),
             )
-                .chain(),)
-                .chain(),
+                .chain(),),
         )
         // Observers
         .add_observer(on_bird_jump)
@@ -234,7 +241,7 @@ fn check_in_bounds(
         {
             match gamemode.0 {
                 GameMode::Train { .. } => {
-                    commands.entity(entity).insert(Dead);
+                    // commands.entity(entity).insert(Dead);
                 }
                 GameMode::Play { .. } => {
                     end.write(EndGame);
@@ -246,19 +253,13 @@ fn check_in_bounds(
         }
     }
 }
-pub fn no_bird(
-    alive: Query<&Bird>,
-    mut commands: Commands,
-    mut end: MessageWriter<EndGame>,
-    mut begin: MessageWriter<BeginGame>,
-) {
+pub fn no_bird(alive: Query<&Bird>, mut commands: Commands, mut end: MessageWriter<EndGame>) {
     if !alive.is_empty() {
         return;
     }
-
+    #[cfg(target_arch = "wasm32")]
+    web_sys::console::log_1(&format!("bro tweaking",).into());
     end.write(EndGame);
-
-    begin.write(BeginGame);
 }
 
 fn despawn_deads(
@@ -304,6 +305,7 @@ fn check_collisions(
                     GameMode::Train { .. } => {
                         commands.entity(e).insert(PipeDeath);
                     }
+
                     _ => {
                         end.write(EndGame);
                     }
@@ -353,11 +355,13 @@ fn read_messages<E: Message>(
     asset_server: Res<AssetServer>,
     gamemode: Res<GamemodeRessource>,
     movers: Query<Entity, Or<(With<Pipe>, With<Bird>)>>,
-    mut gates: Query<&mut PointsGate>,
-    mut score: ResMut<Score>,
     mut text: Query<&mut Text, With<ScoreText>>,
 ) {
+    #[cfg(target_arch = "wasm32")]
+    web_sys::console::log_1(&format!("{:?} turna", end.read().count()).into());
     if end.read().count() > 0 {
+        #[cfg(target_arch = "wasm32")]
+        web_sys::console::log_1(&format!("{:?} bro", end.read().count()).into());
         for e in &movers {
             commands.entity(e).despawn();
         }
@@ -367,6 +371,8 @@ fn read_messages<E: Message>(
     }
 
     if begin.read().count() > 0 {
+        #[cfg(target_arch = "wasm32")]
+        web_sys::console::log_1(&format!("{:?} tweaking", begin.read().count()).into());
         match gamemode.0 {
             GameMode::Demo { .. } => {}
             GameMode::Play { opacity, .. } => {
@@ -382,6 +388,8 @@ fn read_messages<E: Message>(
             }
         }
     }
+    end.clear();
+    begin.clear();
 }
 
 //debug helper
@@ -397,7 +405,7 @@ fn toggle_pause(mut time: ResMut<Time<Virtual>>, keys: Res<ButtonInput<KeyCode>>
         }
     }
 }
-#[derive(Asset, TypePath, AsBindGroup, Debug, Clone)]
+#[derive(Debug, Asset, TypePath, AsBindGroup, Clone)]
 pub struct BackgroundMaterial {
     #[texture(0)]
     #[sampler(1)]

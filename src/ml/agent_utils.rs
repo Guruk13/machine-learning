@@ -31,7 +31,7 @@ impl AgentStats {
     }
 }
 
-#[derive(Reflect, Component, Debug, Clone, Copy, Default)]
+#[derive(Debug, Reflect, Component, Clone, Copy, Default)]
 pub struct GameStateFeatures {
     pub bird_speed: f32,
     pub next_pipe_top_y: f32,
@@ -70,7 +70,7 @@ pub struct RewardPrizes {
     pub jump_cost: f32,
 }
 
-#[derive(Component)]
+#[derive(Debug, Component)]
 pub struct AgentState {
     pub is_dead: bool,
     pub current_gamestate: Option<GameStateFeatures>,

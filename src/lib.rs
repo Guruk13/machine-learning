@@ -9,7 +9,7 @@ pub mod staticdevice;
 
 pub use plugins::*;
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub enum ReplacementState {
     Idle,
     Descending,
@@ -18,7 +18,7 @@ pub enum ReplacementState {
 }
 type MyBackend = Wgpu<f32, i32>;
 pub type MyAutodiffBackend = Autodiff<MyBackend>;
-#[derive(Clone, Copy, Debug, Reflect, PartialEq)]
+#[derive(Debug, Clone, Copy, Reflect, PartialEq)]
 pub enum GameMode {
     Train { birdnumber: u8, opacity: f32 },
     Play { birdnumber: u8, opacity: f32 },
@@ -50,15 +50,15 @@ impl Default for GameMode {
         Self::train()
     }
 }
-#[derive(Resource, Reflect)]
+#[derive(Debug, Resource, Reflect)]
 pub struct GamemodeRessource(pub GameMode);
-#[derive(Message)]
+#[derive(Debug, Message)]
 pub struct BeginGame;
-#[derive(Message)]
+#[derive(Debug, Message)]
 pub struct EndGame;
 pub trait EndsGame {}
 impl EndsGame for SwitchGamemode {}
 impl EndsGame for EndGame {}
 
-#[derive(Message)]
+#[derive(Debug, Message)]
 pub struct SwitchGamemode;

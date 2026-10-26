@@ -30,12 +30,10 @@ impl Plugin for BrainPlugin {
                 matches!(m.0, GameMode::Train { .. } | GameMode::Demo { .. })
             }),
         );
-        app.add_systems(FixedUpdate, (think).chain().in_set(GameSets::AI));
+        app.add_systems(FixedUpdate, think.in_set(GameSets::AI));
         app.add_systems(
-            PostUpdate,
-            (run_forwards_and_optims.run_if(on_message::<EndGame>),)
-                .chain()
-                .in_set(GameSets::AI),
+            FixedPostUpdate,
+            (run_forwards_and_optims.run_if(on_message::<EndGame>)).in_set(GameSets::AI),
         );
 
         app.insert_non_send(AMRessource {
@@ -351,13 +349,9 @@ pub fn run_forwards_and_optims(
         }
     }
 }
-pub fn no_birds_in_main_system(
-    alive: Query<&Bird>,
-    am_ressource: NonSend<AMRessource>,
-    mut end: MessageWriter<EndGame>,
-) {
+pub fn no_birds_in_main_system(alive: Query<&Bird>, am_ressource: NonSend<AMRessource>) -> bool {
     if !alive.is_empty() {
-        return;
+        return false;
     }
 
     let mut no_actions_in_flight = true;
@@ -382,9 +376,7 @@ pub fn no_birds_in_main_system(
             }
         }
     }
-    if no_actions_in_flight {
-        end.write(EndGame);
-    }
+    no_actions_in_flight
 }
 
 fn ready_hardware<E: EndsGame>(mut end: MessageReader<SwitchGamemode>, mut commands: Commands) {
@@ -408,7 +400,7 @@ struct PipeEdgeInfo {
 }
 
 //there's already a generic for this @todo
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
 enum PipeKind {
     PipeTop,    // gap ceiling = bottom edge of the pipe
     PipeBottom, // gap floor   = top edge of the pipe
