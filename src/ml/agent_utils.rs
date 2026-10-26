@@ -130,7 +130,7 @@ impl AgentDefault {
         let r2 = js_sys::Math::random();
 
         // gamma: random pick from {0.90, 0.91, ..., 0.99}
-        let _gamma = (88 + (r1 * 12.0).floor() as u32) as f32 / 100.0;
+        let _gamma = (89 + (r1 * 6.0).floor() as u32) as f32 / 100.0;
         //
         // { gamma: 0.9, learning_rate: 0.001 }
         // learning_rate: random pick from curated values

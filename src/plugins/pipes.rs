@@ -21,18 +21,17 @@ impl Plugin for PipePlugin {
             (
                 despawn_pipes,
                 shift_pipes_to_the_left,
-                spawn_pipes.run_if(on_timer(Duration::from_millis(1000))),
+                spawn_pipes.run_if(on_timer(Duration::from_millis(1100))),
             ),
         )
         .add_observer(on_score);
     }
 }
-fn on_score(e: On<ScorePoint>, birds: Query<&mut Bird>, mut pointgates: Query<&mut PointsGate>) {
-    pointgates
-        .get_mut(e.gate)
-        .unwrap()
-        .has_scored
-        .push(birds.get(e.bird).unwrap().uid);
+fn on_score(e: On<ScorePoint>, birds: Query<&Bird>, mut gates: Query<&mut PointsGate>) {
+    let (Ok(bird), Ok(mut gate)) = (birds.get(e.bird), gates.get_mut(e.gate)) else {
+        return;
+    };
+    gate.has_scored.push(bird.uid);
 }
 
 fn spawn_pipes(mut commands: Commands, asset_server: Res<AssetServer>, time: Res<Time>) {
@@ -53,7 +52,7 @@ fn spawn_pipes(mut commands: Commands, asset_server: Res<AssetServer>, time: Res
     });
 
     let transform = Transform::from_xyz(CANVAS_SIZE.x / 2., 0.0, 1.0);
-    let gap_y_position = (time.elapsed_secs() * 4.2309875).sin() * CANVAS_SIZE.y / 4.;
+    let gap_y_position = (time.elapsed_secs() * 99.).sin() * CANVAS_SIZE.y / 6.0;
     let pipe_offset = PIPE_SIZE.y / 2.0 + GAP_SIZE / 2.0;
 
     commands.spawn((
