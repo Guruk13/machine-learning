@@ -4,7 +4,7 @@ use bevy::{
     image::ImageAddressMode,
     math::bounding::{Aabb2d, BoundingCircle, IntersectsVolume},
     prelude::*,
-    render::render_resource::AsBindGroup,
+    render::{render_resource::AsBindGroup, renderer::RenderGraphSystems::Begin},
     shader::ShaderRef,
     sprite_render::{Material2d, Material2dPlugin},
 };
@@ -16,8 +16,9 @@ use crate::ml::multiagent::AMRessource;
 use crate::ml::multiagent::AgentManager;
 use crate::player::Pipe;
 use crate::player::*;
-use burn::backend::wgpu::WgpuDevice;
+use crate::{BeginGame, EndGame, EndsGame, SwitchGamemode};
 use burn::tensor::Device;
+use burn::{backend::wgpu::WgpuDevice, cubecl::ir::BranchOpCode::Switch};
 use flappy_bird::BrainPlugin;
 use std::rc::Rc;
 use std::time::Duration;
@@ -74,6 +75,14 @@ async fn async_main() {
         )
         // Startup
         .add_systems(Startup, (startup, set_time_scale))
+        .add_systems(
+            FixedPreUpdate,
+            (
+                read_messages::<BeginGame>,
+                read_messages::<EndGame>,
+                read_messages::<SwitchGamemode>,
+            ),
+        )
         // Update
         .add_systems(
             Update,
@@ -104,11 +113,7 @@ async fn async_main() {
                 .chain(),
         )
         // Observers
-        .add_observer(spawn_birds)
-        .add_observer(endgame::<SwitchGamemode>)
-        .add_observer(endgame::<EndGame>)
         .add_observer(on_bird_jump)
-        .add_observer(on_score)
         .run();
 }
 
@@ -118,6 +123,7 @@ fn startup(
     mut config_store: ResMut<GizmoConfigStore>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<BackgroundMaterial>>,
+    mut begin: MessageWriter<BeginGame>,
 ) {
     let (config, _) = config_store.config_mut::<DefaultGizmoConfigGroup>();
     config.enabled = false;
@@ -163,7 +169,7 @@ fn startup(
             ),
         })),
     ));
-    commands.trigger(BeginGame);
+    begin.write(BeginGame);
 }
 
 const PLAY_TIMEOUT_SECS: f32 = 5.0;
@@ -172,6 +178,7 @@ fn switch_gamemode(
     time: Res<Time>,
     mut gamemode: ResMut<GamemodeRessource>,
     mut last_click: Local<Option<f32>>,
+    mut end: MessageWriter<SwitchGamemode>,
 ) {
     let now = time.elapsed_secs(); // elapsed_seconds() on Bevy < 0.15
 
@@ -193,6 +200,7 @@ fn switch_gamemode(
             }
         }
     }
+    end.write(SwitchGamemode);
 }
 
 fn gravity(mut transforms: Query<(&mut Transform, &mut Velocity, &Gravity)>, time: Res<Time>) {
@@ -217,6 +225,7 @@ fn check_in_bounds(
     mut birds: Query<(Entity, &Transform, &mut Bird), With<Bird>>,
     mut commands: Commands,
     mut gamemode: Res<GamemodeRessource>,
+    mut end: MessageWriter<EndGame>,
 ) {
     // check each bird
     for (entity, transform, mut bird) in birds.iter_mut() {
@@ -228,46 +237,28 @@ fn check_in_bounds(
                     commands.entity(entity).insert(Dead);
                 }
                 GameMode::Play { .. } => {
-                    commands.trigger(EndGame);
+                    end.write(EndGame);
                 }
                 GameMode::Demo { .. } => {
-                    commands.trigger(EndGame);
+                    end.write(EndGame);
                 }
             }
         }
     }
 }
-pub fn no_birds_in_main_system(alive: Query<&Bird>, mut commands: Commands) {
+pub fn no_bird(
+    alive: Query<&Bird>,
+    mut commands: Commands,
+    mut end: MessageWriter<EndGame>,
+    mut begin: MessageWriter<BeginGame>,
+) {
     if !alive.is_empty() {
         return;
     }
-    commands.trigger(EndGame);
-    commands.trigger(BeginGame)
-}
 
-fn spawn_birds(
-    event: On<BeginGame>,
-    mut commands: Commands,
-    asset_server: Res<AssetServer>,
-    gamemode: Res<GamemodeRessource>,
-) {
-    match gamemode.0 {
-        GameMode::Demo { .. } => {}
-        GameMode::Play {
-            birdnumber,
-            opacity,
-        } => {
-            commands.spawn((Player, Bird::new(&*asset_server, 0, opacity)));
-        }
-        GameMode::Train {
-            birdnumber,
-            opacity,
-        } => {
-            for n in 0..birdnumber {
-                commands.spawn(Bird::new(&*asset_server, n, opacity));
-            }
-        }
-    }
+    end.write(EndGame);
+
+    begin.write(BeginGame);
 }
 
 fn despawn_deads(
@@ -278,23 +269,18 @@ fn despawn_deads(
         commands.entity(e).despawn();
     }
 }
-pub fn no_bird(alive: Query<&Bird>, mut commands: Commands) {
-    if !alive.is_empty() {
-        return;
-    }
-    commands.trigger(BeginGame);
-}
 
 fn check_collisions(
     mut commands: Commands,
-    mut birds: Query<(Entity, &mut Bird, Has<Player>), With<Bird>>,
+    mut birds: Query<(Entity, &mut Bird, &mut IndividualScore, Has<Player>), With<Bird>>,
     pipe_segments: Query<(&Sprite, Entity), Or<(With<PipeTop>, With<PipeBottom>)>>,
     mut pipe_gaps: Query<(&Sprite, Entity, &mut PointsGate), With<PointsGate>>,
     mut gizmos: Gizmos,
     transform_helper: TransformHelper,
     gamemode: Res<GamemodeRessource>,
+    mut end: MessageWriter<EndGame>,
 ) -> Result<()> {
-    for (mut e, mut bird, player) in birds.iter_mut() {
+    for (mut e, mut bird, mut birdscore, player) in birds.iter_mut() {
         let bird_transform = transform_helper.compute_global_transform(e)?;
         let bird_collider =
             BoundingCircle::new(bird_transform.translation().xy(), PLAYER_SIZE / 2.);
@@ -319,7 +305,7 @@ fn check_collisions(
                         commands.entity(e).insert(PipeDeath);
                     }
                     _ => {
-                        commands.trigger(EndGame);
+                        end.write(EndGame);
                     }
                 }
             }
@@ -339,29 +325,12 @@ fn check_collisions(
             );
 
             if bird_collider.intersects(&gap_collider) & !pointgate.has_scored.contains(&bird.uid) {
-                commands.trigger(ScorePoint {
-                    bird: e,
-                    gate: entity,
-                });
+                pointgate.has_scored.push(bird.uid);
+                birdscore.0 += 1;
             }
         }
     }
     Ok(())
-}
-
-fn on_score(
-    e: On<ScorePoint>,
-    mut birds: Query<(Entity, &mut IndividualScore), With<IndividualScore>>,
-    mut score: ResMut<Score>,
-    mut text: Query<&mut Text, With<ScoreText>>,
-) {
-    if let Ok(mut bird) = birds.get_mut(e.bird) {
-        bird.1 .0 += 1;
-        score.0 = bird.1 .0;
-    }
-    for mut t in &mut text {
-        t.0 = score.0.to_string();
-    }
 }
 
 fn enforce_bird_direction(mut birds: Query<(&mut Transform, &Velocity), With<Bird>>) {
@@ -377,18 +346,41 @@ fn on_bird_jump(event: On<BirdJump>, mut velocities: Query<&mut Velocity, With<B
     }
 }
 
-fn endgame<E: EndsGame>(
-    _: On<E>,
+fn read_messages<E: Message>(
+    mut end: MessageReader<E>,
+    mut begin: MessageReader<BeginGame>,
     mut commands: Commands,
-    mut moves: Query<Entity, Or<(With<Pipe>, With<Bird>)>>,
+    asset_server: Res<AssetServer>,
+    gamemode: Res<GamemodeRessource>,
+    movers: Query<Entity, Or<(With<Pipe>, With<Bird>)>>,
+    mut gates: Query<&mut PointsGate>,
     mut score: ResMut<Score>,
     mut text: Query<&mut Text, With<ScoreText>>,
 ) {
-    for e in moves {
-        commands.entity(e).despawn();
+    if end.read().count() > 0 {
+        for e in &movers {
+            commands.entity(e).despawn();
+        }
+        for mut t in &mut text {
+            t.0 = String::from("0");
+        }
     }
-    for mut t in &mut text {
-        t.0 = String::from("0");
+
+    if begin.read().count() > 0 {
+        match gamemode.0 {
+            GameMode::Demo { .. } => {}
+            GameMode::Play { opacity, .. } => {
+                commands.spawn((Player, Bird::new(&*asset_server, 0, opacity)));
+            }
+            GameMode::Train {
+                birdnumber,
+                opacity,
+            } => {
+                for n in 0..birdnumber {
+                    commands.spawn(Bird::new(&*asset_server, n, opacity));
+                }
+            }
+        }
     }
 }
 

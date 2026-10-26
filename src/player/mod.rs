@@ -19,12 +19,6 @@ pub struct PipeDeath;
 #[derive(Component, Debug)]
 pub struct IndividualScore(pub u32);
 
-#[derive(Event)]
-pub struct ScorePoint {
-    pub bird: Entity,
-    pub gate: Entity,
-}
-
 #[derive(Resource, Default)]
 pub struct Score(pub u32);
 

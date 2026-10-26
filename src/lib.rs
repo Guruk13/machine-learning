@@ -8,10 +8,6 @@ pub mod plugins;
 pub mod staticdevice;
 
 pub use plugins::*;
-#[derive(Event)]
-pub struct BeginGame;
-#[derive(Event)]
-pub struct EndGame;
 
 #[derive(Clone)]
 pub enum ReplacementState {
@@ -56,10 +52,13 @@ impl Default for GameMode {
 }
 #[derive(Resource, Reflect)]
 pub struct GamemodeRessource(pub GameMode);
-
-pub trait EndsGame: Event {}
+#[derive(Message)]
+pub struct BeginGame;
+#[derive(Message)]
+pub struct EndGame;
+pub trait EndsGame {}
 impl EndsGame for SwitchGamemode {}
 impl EndsGame for EndGame {}
 
-#[derive(Event)]
-pub struct SwitchGamemode(pub GameMode);
+#[derive(Message)]
+pub struct SwitchGamemode;

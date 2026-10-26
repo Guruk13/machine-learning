@@ -33,16 +33,16 @@ impl Plugin for BrainPlugin {
         app.add_systems(FixedUpdate, (think).chain().in_set(GameSets::AI));
         app.add_systems(
             PostUpdate,
-            (run_forwards_and_optims.run_if(no_birds_in_main_system),)
+            (run_forwards_and_optims.run_if(on_message::<EndGame>),)
                 .chain()
                 .in_set(GameSets::AI),
         );
 
-        app.add_observer(endgame::<SwitchGamemode>);
         app.insert_non_send(AMRessource {
             agent_manager: AgentManager::new(),
             replacement: Rc::new(RefCell::new(ReplacementState::Idle)),
         });
+        app.add_systems(FixedPreUpdate, ready_hardware::<SwitchGamemode>);
     }
 }
 
@@ -206,12 +206,12 @@ fn think(
 //this function is end of the line for async works : it hands off major tensor tasks to wgpu worker before resuming them in another micro task loop
 pub fn run_forwards_and_optims(
     mut am_ressource: NonSendMut<AMRessource>,
-    mut commands: Commands,
     gamemode: Res<GamemodeRessource>,
+    mut begin: MessageWriter<BeginGame>,
 ) {
     match gamemode.0 {
         GameMode::Demo { .. } => {
-            commands.trigger(BeginGame);
+            begin.write(BeginGame);
             return;
         }
         _ => {}
@@ -347,17 +347,17 @@ pub fn run_forwards_and_optims(
 
         ReplacementState::Ready => {
             *replacement.borrow_mut() = ReplacementState::Idle;
-            commands.trigger(BeginGame);
+            begin.write(BeginGame);
         }
     }
 }
 pub fn no_birds_in_main_system(
     alive: Query<&Bird>,
     am_ressource: NonSend<AMRessource>,
-    mut commands: Commands,
-) -> bool {
+    mut end: MessageWriter<EndGame>,
+) {
     if !alive.is_empty() {
-        return false;
+        return;
     }
 
     let mut no_actions_in_flight = true;
@@ -383,13 +383,14 @@ pub fn no_birds_in_main_system(
         }
     }
     if no_actions_in_flight {
-        commands.trigger(EndGame);
+        end.write(EndGame);
     }
-
-    no_actions_in_flight
 }
 
-fn endgame<E: EndsGame>(_e: On<E>, mut commands: Commands) {
+fn ready_hardware<E: EndsGame>(mut end: MessageReader<SwitchGamemode>, mut commands: Commands) {
+    if end.read().count() == 0 {
+        return;
+    }
     commands.queue(|world: &mut World| {
         world.remove_non_send::<AMRessource>();
         world.insert_non_send(AMRessource {
@@ -398,6 +399,7 @@ fn endgame<E: EndsGame>(_e: On<E>, mut commands: Commands) {
         });
     });
 }
+
 struct PipeEdgeInfo {
     //conendrum: there might be pipes , but no next pipes : hence exists
     exists: bool,
