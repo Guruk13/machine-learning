@@ -38,7 +38,7 @@ async fn async_main() {
         Default::default(),
     )
     .await;
-    set_global_device(device.clone()); // still needed for code outside Bevy
+    set_global_device(device.clone());
 
     App::new()
         // Plugins
@@ -95,7 +95,6 @@ async fn async_main() {
         .add_systems(
             Update,
             (
-                switch_gamemode,
                 enforce_bird_direction,
                 toggle_pause,
                 controls
@@ -113,11 +112,12 @@ async fn async_main() {
         .add_systems(
             FixedPostUpdate,
             ((
+                switch_gamemode,
+                read_messages::<SwitchGamemode>,
                 (despawn_deads).in_set(GameSets::Cleanup),
-                ApplyDeferred,
                 no_bird.in_set(GameSets::Play),
             )
-                .chain(),),
+                .chain()),
         )
         // Observers
         .add_observer(on_bird_jump)
@@ -194,6 +194,7 @@ fn switch_gamemode(
 
         // Any mode other than Play -> Play on click
         if !matches!(gamemode.0, GameMode::Play { .. }) {
+            end.write(SwitchGamemode);
             gamemode.0 = GameMode::play();
         }
     }
@@ -207,7 +208,6 @@ fn switch_gamemode(
             }
         }
     }
-    end.write(SwitchGamemode);
 }
 
 fn gravity(mut transforms: Query<(&mut Transform, &mut Velocity, &Gravity)>, time: Res<Time>) {
@@ -229,19 +229,19 @@ fn controls(
 }
 
 fn check_in_bounds(
-    mut birds: Query<(Entity, &Transform, &mut Bird), With<Bird>>,
+    mut birds: Query<(Entity, &Transform), With<Bird>>,
     mut commands: Commands,
     mut gamemode: Res<GamemodeRessource>,
     mut end: MessageWriter<EndGame>,
 ) {
     // check each bird
-    for (entity, transform, mut bird) in birds.iter_mut() {
+    for (entity, transform) in birds.iter_mut() {
         if transform.translation.y < -CANVAS_SIZE.y / 2.0 - PLAYER_SIZE
             || transform.translation.y > CANVAS_SIZE.y / 2.0 + PLAYER_SIZE
         {
             match gamemode.0 {
                 GameMode::Train { .. } => {
-                    // commands.entity(entity).insert(Dead);
+                    commands.entity(entity).insert(Dead);
                 }
                 GameMode::Play { .. } => {
                     end.write(EndGame);
@@ -253,13 +253,17 @@ fn check_in_bounds(
         }
     }
 }
-pub fn no_bird(alive: Query<&Bird>, mut commands: Commands, mut end: MessageWriter<EndGame>) {
+pub fn no_bird(
+    alive: Query<&Bird>,
+    mut commands: Commands,
+    mut end: MessageWriter<EndGame>,
+    mut begin: MessageWriter<BeginGame>,
+) {
     if !alive.is_empty() {
         return;
     }
-    #[cfg(target_arch = "wasm32")]
-    web_sys::console::log_1(&format!("bro tweaking",).into());
     end.write(EndGame);
+    begin.write(BeginGame);
 }
 
 fn despawn_deads(
@@ -357,11 +361,7 @@ fn read_messages<E: Message>(
     movers: Query<Entity, Or<(With<Pipe>, With<Bird>)>>,
     mut text: Query<&mut Text, With<ScoreText>>,
 ) {
-    #[cfg(target_arch = "wasm32")]
-    web_sys::console::log_1(&format!("{:?} turna", end.read().count()).into());
     if end.read().count() > 0 {
-        #[cfg(target_arch = "wasm32")]
-        web_sys::console::log_1(&format!("{:?} bro", end.read().count()).into());
         for e in &movers {
             commands.entity(e).despawn();
         }
@@ -371,8 +371,6 @@ fn read_messages<E: Message>(
     }
 
     if begin.read().count() > 0 {
-        #[cfg(target_arch = "wasm32")]
-        web_sys::console::log_1(&format!("{:?} tweaking", begin.read().count()).into());
         match gamemode.0 {
             GameMode::Demo { .. } => {}
             GameMode::Play { opacity, .. } => {
@@ -388,8 +386,6 @@ fn read_messages<E: Message>(
             }
         }
     }
-    end.clear();
-    begin.clear();
 }
 
 //debug helper

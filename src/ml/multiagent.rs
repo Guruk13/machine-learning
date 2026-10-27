@@ -1,14 +1,12 @@
-use crate::ml::agent_utils::AgentDefault;
-
 use super::agent_utils::GameStateFeatures;
 use super::model::FlappyGradientAgent;
-use std::collections::HashMap;
-
+use crate::ml::agent_utils::AgentDefault;
 use crate::ReplacementState;
+use bevy::ecs::prelude::Resource;
 use burn::backend::wgpu::WgpuDevice;
+use std::collections::HashMap;
 use std::sync::OnceLock;
 use std::{cell::RefCell, rc::Rc};
-
 pub struct AgentManager {
     pub inner: HashMap<u8, Rc<RefCell<FlappyGradientAgent>>>,
 }
@@ -41,13 +39,14 @@ impl AgentManager {
         self.inner.remove(&key);
     }
 }
-
+#[derive(Resource)]
 pub struct AMRessource {
     pub agent_manager: AgentManager,
     pub replacement: Rc<RefCell<ReplacementState>>,
 }
-//maybe useless
+// conendrum : amrressource holds refcells , very sensitive on single threaded env. app is built on wasm so always single thread
 unsafe impl Send for AMRessource {}
+unsafe impl Sync for AMRessource {}
 
 static DEVICE: OnceLock<WgpuDevice> = OnceLock::new();
 

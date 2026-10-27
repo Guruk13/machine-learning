@@ -30,17 +30,25 @@ impl Plugin for BrainPlugin {
                 matches!(m.0, GameMode::Train { .. } | GameMode::Demo { .. })
             }),
         );
-        app.add_systems(FixedUpdate, think.in_set(GameSets::AI));
         app.add_systems(
-            FixedPostUpdate,
-            (run_forwards_and_optims.run_if(on_message::<EndGame>)).in_set(GameSets::AI),
+            FixedUpdate,
+            (
+                think,
+                run_forwards_and_optims
+                    .run_if(no_birds_in_main_system)
+                    .chain(),
+            )
+                .in_set(GameSets::AI),
         );
 
         app.insert_non_send(AMRessource {
             agent_manager: AgentManager::new(),
             replacement: Rc::new(RefCell::new(ReplacementState::Idle)),
         });
-        app.add_systems(FixedPreUpdate, ready_hardware::<SwitchGamemode>);
+        app.add_systems(
+            Last,
+            ready_hardware::<SwitchGamemode>, //.run_if(|am: Res<AMRessource>| {matches!(am.replacement.clone(), ReplacementState::Idle)}
+        );
     }
 }
 
@@ -201,12 +209,15 @@ fn think(
             .agent_finish_episode();
     }
 }
+
 //this function is end of the line for async works : it hands off major tensor tasks to wgpu worker before resuming them in another micro task loop
 pub fn run_forwards_and_optims(
     mut am_ressource: NonSendMut<AMRessource>,
     gamemode: Res<GamemodeRessource>,
     mut begin: MessageWriter<BeginGame>,
+    mut end: MessageWriter<EndGame>,
 ) {
+    end.write(EndGame);
     match gamemode.0 {
         GameMode::Demo { .. } => {
             begin.write(BeginGame);
