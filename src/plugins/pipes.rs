@@ -45,7 +45,7 @@ fn spawn_pipes(mut commands: Commands, asset_server: Res<AssetServer>, time: Res
     });
 
     let transform = Transform::from_xyz(CANVAS_SIZE.x / 2., 0.0, 1.0);
-    let gap_y_position = (time.elapsed_secs() * 99.).sin() * CANVAS_SIZE.y / 6.0;
+    let gap_y_position = (time.elapsed_secs() * 33.).sin() * CANVAS_SIZE.y / 6.0;
     let pipe_offset = PIPE_SIZE.y / 2.0 + GAP_SIZE / 2.0;
 
     commands.spawn((

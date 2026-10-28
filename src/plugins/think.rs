@@ -34,9 +34,15 @@ impl Plugin for BrainPlugin {
             FixedUpdate,
             (
                 think,
-                run_forwards_and_optims
-                    .run_if(no_birds_in_main_system)
-                    .chain(),
+                run_forwards_and_optims.run_if(
+                    no_birds_in_main_system.and_then(no_messages).or_eager(
+                        |am: Option<Res<AMRessource>>| {
+                            am.is_some_and(|am| {
+                                !matches!(*am.replacement.borrow(), ReplacementState::Idle)
+                            })
+                        },
+                    ),
+                ),
             )
                 .in_set(GameSets::AI),
         );
@@ -47,7 +53,9 @@ impl Plugin for BrainPlugin {
         });
         app.add_systems(
             Last,
-            ready_hardware::<SwitchGamemode>, //.run_if(|am: Res<AMRessource>| {matches!(am.replacement.clone(), ReplacementState::Idle)}
+            ready_hardware::<SwitchGamemode>.run_if(|am: Option<Res<AMRessource>>| {
+                am.is_some_and(|am| matches!(*am.replacement.borrow(), ReplacementState::Idle))
+            }),
         );
     }
 }
@@ -74,11 +82,6 @@ fn think(
     mut am_ressource: NonSendMut<AMRessource>,
 ) {
     let mut all_birds: Vec<_> = birds.iter_mut().collect();
-    //linear distribution
-    //let n = all_birds.len();
-    //let denom = (n.saturating_sub(1)).max(1) as f32; // avoid divide by zero when N == 1
-    //let _rank = agent.stats.rank as f32;
-    //opacity.value = 100.0 * (1.0 - rank / denom);
     for (entity, bird, transform, velocity, bird_aabb, dead, pipe_death, score) in
         all_birds.iter_mut()
     {
@@ -217,6 +220,7 @@ pub fn run_forwards_and_optims(
     mut begin: MessageWriter<BeginGame>,
     mut end: MessageWriter<EndGame>,
 ) {
+    web_sys::console::log_1(&format!("end days ").into());
     end.write(EndGame);
     match gamemode.0 {
         GameMode::Demo { .. } => {
@@ -357,6 +361,7 @@ pub fn run_forwards_and_optims(
         ReplacementState::Ready => {
             *replacement.borrow_mut() = ReplacementState::Idle;
             begin.write(BeginGame);
+            web_sys::console::log_1(&format!("begin days ").into());
         }
     }
 }
@@ -387,10 +392,15 @@ pub fn no_birds_in_main_system(alive: Query<&Bird>, am_ressource: NonSend<AMRess
             }
         }
     }
+
     no_actions_in_flight
+}
+fn no_messages(reader: MessageReader<SwitchGamemode>) -> bool {
+    reader.is_empty()
 }
 
 fn ready_hardware<E: EndsGame>(mut end: MessageReader<SwitchGamemode>, mut commands: Commands) {
+    web_sys::console::log_1(&format!("switch").into());
     if end.read().count() == 0 {
         return;
     }

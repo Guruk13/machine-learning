@@ -60,9 +60,9 @@ async fn async_main() {
             FixedUpdate,
             (
                 GameSets::Input,
-                GameSets::Game,
                 GameSets::Play
                     .run_if(|m: Res<GamemodeRessource>| matches!(m.0, GameMode::Play { .. })),
+                GameSets::Game,
                 GameSets::Cleanup,
             )
                 .chain(),
@@ -83,9 +83,8 @@ async fn async_main() {
         .add_systems(
             FixedPreUpdate,
             (
-                read_messages::<BeginGame>,
-                read_messages::<EndGame>,
-                read_messages::<SwitchGamemode>,
+                (end_listener::<SwitchGamemode>, begin_listener::<BeginGame>).chain(),
+                end_listener::<EndGame>,
             ),
         )
         .add_message::<BeginGame>()
@@ -97,10 +96,7 @@ async fn async_main() {
             (
                 enforce_bird_direction,
                 toggle_pause,
-                controls
-                    .run_if(any_with_component::<Player>)
-                    .in_set(GameSets::Input)
-                    .in_set(GameSets::Play),
+                controls.in_set(GameSets::Play),
             ),
         )
         // FixedUpdate
@@ -112,12 +108,10 @@ async fn async_main() {
         .add_systems(
             FixedPostUpdate,
             ((
-                switch_gamemode,
-                read_messages::<SwitchGamemode>,
-                (despawn_deads).in_set(GameSets::Cleanup),
-                no_bird.in_set(GameSets::Play),
+                (despawn_deads, switch_gamemode).in_set(GameSets::Cleanup),
+                (no_bird.in_set(GameSets::Play)),
             )
-                .chain()),
+                .chain(),),
         )
         // Observers
         .add_observer(on_bird_jump)
@@ -220,11 +214,15 @@ fn gravity(mut transforms: Query<(&mut Transform, &mut Velocity, &Gravity)>, tim
 
 fn controls(
     mut commands: Commands,
-    player: Single<Entity, With<Player>>,
+    player: Query<Entity, With<Player>>,
     buttons: Res<ButtonInput<MouseButton>>,
 ) {
-    if buttons.any_just_pressed([MouseButton::Left, MouseButton::Right]) {
-        commands.trigger(BirdJump(*player));
+    if !buttons.any_just_pressed([MouseButton::Left, MouseButton::Right]) {
+        return;
+    }
+    match player.single() {
+        Ok(e) => commands.trigger(BirdJump(e)),
+        Err(err) => warn!("controls: {err}"), // zero or multiple players
     }
 }
 
@@ -352,14 +350,11 @@ fn on_bird_jump(event: On<BirdJump>, mut velocities: Query<&mut Velocity, With<B
     }
 }
 
-fn read_messages<E: Message>(
-    mut end: MessageReader<E>,
-    mut begin: MessageReader<BeginGame>,
-    mut commands: Commands,
-    asset_server: Res<AssetServer>,
-    gamemode: Res<GamemodeRessource>,
-    movers: Query<Entity, Or<(With<Pipe>, With<Bird>)>>,
+fn end_listener<E: Message>(
+    mut end: MessageReader<EndGame>,
     mut text: Query<&mut Text, With<ScoreText>>,
+    movers: Query<Entity, Or<(With<Pipe>, With<Bird>)>>,
+    mut commands: Commands,
 ) {
     if end.read().count() > 0 {
         for e in &movers {
@@ -369,7 +364,14 @@ fn read_messages<E: Message>(
             t.0 = String::from("0");
         }
     }
+}
 
+fn begin_listener<E: Message>(
+    mut begin: MessageReader<E>,
+    mut commands: Commands,
+    asset_server: Res<AssetServer>,
+    gamemode: Res<GamemodeRessource>,
+) {
     if begin.read().count() > 0 {
         match gamemode.0 {
             GameMode::Demo { .. } => {}
