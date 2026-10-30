@@ -61,6 +61,10 @@ async fn async_main() {
             Update,
             GameSets::Play.run_if(|m: Res<GamemodeRessource>| matches!(m.0, GameMode::Play { .. })),
         )
+        .configure_sets(
+            FixedPostUpdate,
+            GameSets::Play.run_if(|m: Res<GamemodeRessource>| matches!(m.0, GameMode::Play { .. })),
+        )
         .add_systems(Startup, (startup, set_time_scale))
         .add_message::<BeginGame>()
         .add_message::<EndGame>()
@@ -153,7 +157,8 @@ fn startup(
 const PLAY_TIMEOUT_SECS: f32 = 5.0;
 fn switch_gamemode(
     mouse: Res<ButtonInput<MouseButton>>,
-    time: Res<Time>,
+    //za warudo
+    time: Res<Time<Virtual>>,
     mut gamemode: ResMut<GamemodeRessource>,
     mut last_click: Local<Option<f32>>,
     mut end: MessageWriter<ResetGamemode>,

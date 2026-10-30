@@ -29,7 +29,15 @@ impl Plugin for BrainPlugin {
                 matches!(m.0, GameMode::Train { .. } | GameMode::Demo { .. })
             }),
         );
+        app.configure_sets(
+            FixedLast,
+            GameSets::AI.run_if(|m: Res<GamemodeRessource>| {
+                matches!(m.0, GameMode::Train { .. } | GameMode::Demo { .. })
+            }),
+        );
         app.add_systems(FixedFirst, ready_hardware::<ResetGamemode>);
+
+        //app.add_systems(FixedUpdate, think.in_set(GameSets::AI));
 
         app.add_systems(
             FixedLast,
@@ -41,6 +49,7 @@ impl Plugin for BrainPlugin {
                         .and_eager(not_setup::<BeginGame>),
                 ),
             )
+                .chain()
                 .in_set(GameSets::AI),
         );
 
@@ -121,7 +130,6 @@ fn think(
             remaining_bot_x: nearest_bot.remaining_x,
             remaining_top_x: nearest_top.remaining_x,
         };
-
         //get an agent , sync it with Bird's pov
         am_ressource.agent_manager.bind_agent(bird.uid, state);
         let mut agent = am_ressource.agent_manager.inner[&bird.uid].borrow_mut();
