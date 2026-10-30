@@ -199,7 +199,7 @@ fn controls(
     }
     match player.single() {
         Ok(e) => commands.trigger(BirdJump(e)),
-        Err(err) => warn!("controls: {err}"), // zero or multiple players
+        Err(err) => {}
     }
 }
 
@@ -327,7 +327,7 @@ fn enforce_bird_direction(mut birds: Query<(&mut Transform, &Velocity), With<Bir
 
 fn on_bird_jump(event: On<BirdJump>, mut velocities: Query<&mut Velocity, With<Bird>>) {
     if let Ok(mut velocity) = velocities.get_mut(event.0) {
-        velocity.0 = 450.;
+        velocity.0 = 500.;
     }
 }
 
@@ -340,7 +340,7 @@ fn end_listener<E: Message>(
     if end.read().count() > 0 {
         for e in &movers {
             //this should be a despawn
-            commands.entity(e).try_despawn();
+            commands.entity(e).despawn();
         }
         for mut t in &mut text {
             t.0 = String::from("0");

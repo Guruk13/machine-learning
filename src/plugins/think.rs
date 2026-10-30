@@ -135,7 +135,7 @@ fn think(
         }
 
         if score.is_changed() && !score.is_added() {
-            if score.0 >= 15 {
+            if score.0 >= 5 {
                 #[cfg(target_arch = "wasm32")]
                 web_sys::console::log_1(
                     &format!("{:?} {:?}, {:?}", score.0, bird.uid, agent.settings).into(),
