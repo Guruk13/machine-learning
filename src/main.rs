@@ -17,7 +17,7 @@ use crate::ml::multiagent::AMRessource;
 use crate::ml::multiagent::AgentManager;
 use crate::player::Pipe;
 use crate::player::*;
-use crate::{BeginGame, EndGame, EndsGame, SwitchGamemode};
+use crate::{BeginGame, EndGame, ResetGamemode, SwitchGamemode};
 use burn::tensor::Device;
 use burn::{backend::wgpu::WgpuDevice, cubecl::ir::BranchOpCode::Switch};
 use flappy_bird::BrainPlugin;
@@ -41,7 +41,6 @@ async fn async_main() {
     set_global_device(device.clone());
 
     App::new()
-        // Plugins
         .add_plugins(DefaultPlugins.set(AssetPlugin {
             meta_check: AssetMetaCheck::Never,
             ..default()
@@ -51,69 +50,47 @@ async fn async_main() {
             BrainPlugin,
             Material2dPlugin::<BackgroundMaterial>::default(),
         ))
-        // Resources
         .insert_resource(BurnDevice(device))
         .insert_resource(GamemodeRessource(GameMode::train()))
         .init_resource::<Score>()
-        // Set order
         .configure_sets(
             FixedUpdate,
-            (
-                GameSets::Input,
-                GameSets::Play
-                    .run_if(|m: Res<GamemodeRessource>| matches!(m.0, GameMode::Play { .. })),
-                GameSets::Game,
-                GameSets::Cleanup,
-            )
-                .chain(),
+            GameSets::Play.run_if(|m: Res<GamemodeRessource>| matches!(m.0, GameMode::Play { .. })),
         )
         .configure_sets(
-            FixedPostUpdate,
-            (
-                GameSets::Cleanup,
-                GameSets::Play
-                    .run_if(|m: Res<GamemodeRessource>| matches!(m.0, GameMode::Play { .. })),
-                GameSets::AI,
-            )
-                .chain(),
+            Update,
+            GameSets::Play.run_if(|m: Res<GamemodeRessource>| matches!(m.0, GameMode::Play { .. })),
         )
-        // Startup
         .add_systems(Startup, (startup, set_time_scale))
-        //this exists because game may be stopped at "any" moment
-        .add_systems(
-            FixedPreUpdate,
-            (
-                (end_listener::<SwitchGamemode>, begin_listener::<BeginGame>).chain(),
-                end_listener::<EndGame>,
-            ),
-        )
         .add_message::<BeginGame>()
         .add_message::<EndGame>()
         .add_message::<SwitchGamemode>()
-        // Update
+        .add_message::<ResetGamemode>()
+        .add_systems(FixedFirst, begin_listener::<BeginGame>)
         .add_systems(
             Update,
             (
                 enforce_bird_direction,
                 toggle_pause,
+                switch_gamemode,
                 controls.in_set(GameSets::Play),
             ),
         )
-        // FixedUpdate
         .add_systems(
             FixedUpdate,
             (gravity, check_in_bounds, check_collisions).in_set(GameSets::Game),
         )
-        // FixedPostUpdate
         .add_systems(
             FixedPostUpdate,
             ((
-                (despawn_deads, switch_gamemode).in_set(GameSets::Cleanup),
-                (no_bird.in_set(GameSets::Play)),
+                end_listener::<SwitchGamemode>,
+                (despawn_deads, no_bird).in_set(GameSets::Play),
+                ApplyDeferred,
+                end_listener::<EndGame>.in_set(GameSets::Play),
             )
                 .chain(),),
         )
-        // Observers
+        // this should be a message , but i need to finish this project
         .add_observer(on_bird_jump)
         .run();
 }
@@ -179,7 +156,7 @@ fn switch_gamemode(
     time: Res<Time>,
     mut gamemode: ResMut<GamemodeRessource>,
     mut last_click: Local<Option<f32>>,
-    mut end: MessageWriter<SwitchGamemode>,
+    mut end: MessageWriter<ResetGamemode>,
 ) {
     let now = time.elapsed_secs(); // elapsed_seconds() on Bevy < 0.15
 
@@ -188,8 +165,8 @@ fn switch_gamemode(
 
         // Any mode other than Play -> Play on click
         if !matches!(gamemode.0, GameMode::Play { .. }) {
-            end.write(SwitchGamemode);
             gamemode.0 = GameMode::play();
+            end.write(ResetGamemode);
         }
     }
 
@@ -282,6 +259,7 @@ fn check_collisions(
     transform_helper: TransformHelper,
     gamemode: Res<GamemodeRessource>,
     mut end: MessageWriter<EndGame>,
+    mut text: Query<&mut Text, With<ScoreText>>,
 ) -> Result<()> {
     for (mut e, mut bird, mut birdscore, player) in birds.iter_mut() {
         let bird_transform = transform_helper.compute_global_transform(e)?;
@@ -331,6 +309,9 @@ fn check_collisions(
             if bird_collider.intersects(&gap_collider) & !pointgate.has_scored.contains(&bird.uid) {
                 pointgate.has_scored.push(bird.uid);
                 birdscore.0 += 1;
+                for mut t in &mut text {
+                    t.0 = birdscore.0.to_string();
+                }
             }
         }
     }
@@ -351,14 +332,15 @@ fn on_bird_jump(event: On<BirdJump>, mut velocities: Query<&mut Velocity, With<B
 }
 
 fn end_listener<E: Message>(
-    mut end: MessageReader<EndGame>,
+    mut end: MessageReader<E>,
     mut text: Query<&mut Text, With<ScoreText>>,
     movers: Query<Entity, Or<(With<Pipe>, With<Bird>)>>,
     mut commands: Commands,
 ) {
     if end.read().count() > 0 {
         for e in &movers {
-            commands.entity(e).despawn();
+            //this should be a despawn
+            commands.entity(e).try_despawn();
         }
         for mut t in &mut text {
             t.0 = String::from("0");

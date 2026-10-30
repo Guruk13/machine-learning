@@ -56,9 +56,7 @@ pub struct GamemodeRessource(pub GameMode);
 pub struct BeginGame;
 #[derive(Debug, Message)]
 pub struct EndGame;
-pub trait EndsGame {}
-impl EndsGame for SwitchGamemode {}
-impl EndsGame for EndGame {}
-
 #[derive(Debug, Message)]
 pub struct SwitchGamemode;
+#[derive(Debug, Message)]
+pub struct ResetGamemode;

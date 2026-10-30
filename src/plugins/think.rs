@@ -6,8 +6,8 @@ use crate::player::{
     Bird, BirdJump, Dead, GameSets, IndividualScore, PipeBottom, PipeDeath, PipeTop, Player,
     Velocity,
 };
-use crate::ReplacementState;
-use crate::{BeginGame, EndGame, EndsGame, GameMode, GamemodeRessource, SwitchGamemode};
+use crate::{BeginGame, EndGame, GameMode, GamemodeRessource, SwitchGamemode};
+use crate::{ReplacementState, ResetGamemode};
 
 use bevy::camera::primitives::Aabb;
 use bevy::prelude::*;
@@ -20,7 +20,6 @@ use std::cell::RefCell;
 use std::collections::HashSet;
 use std::rc::Rc;
 
-// to be able to run updates on every agent without cutting some agent's experience , store the birds here , then respawn once optimizations are through
 use crate::ml::multiagent::AgentManager;
 impl Plugin for BrainPlugin {
     fn build(&self, app: &mut App) {
@@ -30,18 +29,16 @@ impl Plugin for BrainPlugin {
                 matches!(m.0, GameMode::Train { .. } | GameMode::Demo { .. })
             }),
         );
+        app.add_systems(FixedFirst, ready_hardware::<ResetGamemode>);
+
         app.add_systems(
-            FixedUpdate,
+            FixedLast,
             (
                 think,
                 run_forwards_and_optims.run_if(
-                    no_birds_in_main_system.and_then(no_messages).or_eager(
-                        |am: Option<Res<AMRessource>>| {
-                            am.is_some_and(|am| {
-                                !matches!(*am.replacement.borrow(), ReplacementState::Idle)
-                            })
-                        },
-                    ),
+                    no_birds_in_main_system
+                        .and_eager(no_switch::<ResetGamemode>)
+                        .and_eager(not_setup::<BeginGame>),
                 ),
             )
                 .in_set(GameSets::AI),
@@ -51,12 +48,6 @@ impl Plugin for BrainPlugin {
             agent_manager: AgentManager::new(),
             replacement: Rc::new(RefCell::new(ReplacementState::Idle)),
         });
-        app.add_systems(
-            Last,
-            ready_hardware::<SwitchGamemode>.run_if(|am: Option<Res<AMRessource>>| {
-                am.is_some_and(|am| matches!(*am.replacement.borrow(), ReplacementState::Idle))
-            }),
-        );
     }
 }
 
@@ -89,8 +80,6 @@ fn think(
         let bird_x = transform.translation.x;
         let bird_left_edge = bird_x + bird_aabb.half_extents.x;
         let bird_right_edge = bird_x - bird_aabb.half_extents.x; // left edge for filter
-
-        // Sort all pipes ahead, independently (they are NOT assumed to be pairs)
         let mut tops_ahead: Vec<_> = pipe_tops
             .iter()
             .filter(|(t, aabb)| t.translation().x + aabb.half_extents.x > bird_right_edge)
@@ -101,7 +90,6 @@ fn think(
                 .partial_cmp(&b.0.translation().x)
                 .unwrap()
         });
-
         let mut bots_ahead: Vec<_> = pipe_bottoms
             .iter()
             .filter(|(t, aabb)| t.translation().x + aabb.half_extents.x > bird_right_edge)
@@ -113,7 +101,6 @@ fn think(
                 .unwrap()
         });
 
-        // Active pipes
         let nearest_top = extract_pipe(
             tops_ahead.first().map(|x| x),
             PipeKind::PipeTop,
@@ -139,9 +126,7 @@ fn think(
         am_ressource.agent_manager.bind_agent(bird.uid, state);
         let mut agent = am_ressource.agent_manager.inner[&bird.uid].borrow_mut();
 
-        //compute reward
         let mut reward: f32 = 0.0;
-        //dying soon is shameful
         if *pipe_death {
             reward += RewardPrizes::default().pipe_death;
         }
@@ -213,6 +198,14 @@ fn think(
     }
 }
 
+fn not_setup<E: Message>(mut begin: MessageReader<E>) -> bool {
+    if begin.read().count() > 0 {
+        return false;
+    }
+
+    return true;
+}
+
 //this function is end of the line for async works : it hands off major tensor tasks to wgpu worker before resuming them in another micro task loop
 pub fn run_forwards_and_optims(
     mut am_ressource: NonSendMut<AMRessource>,
@@ -220,10 +213,9 @@ pub fn run_forwards_and_optims(
     mut begin: MessageWriter<BeginGame>,
     mut end: MessageWriter<EndGame>,
 ) {
-    web_sys::console::log_1(&format!("end days ").into());
-    end.write(EndGame);
     match gamemode.0 {
         GameMode::Demo { .. } => {
+            end.write(EndGame);
             begin.write(BeginGame);
             return;
         }
@@ -248,8 +240,9 @@ pub fn run_forwards_and_optims(
             if am_ressource.agent_manager.inner.len() < 2 {
                 panic!("must have at least two agents");
             }
-
+            end.write(EndGame);
             *replacement.borrow_mut() = ReplacementState::Descending;
+
             // every agent descends on its own episode
             let agents: Vec<_> = am_ressource.agent_manager.inner.values().cloned().collect();
             let replacement_task = replacement.clone();
@@ -288,12 +281,12 @@ pub fn run_forwards_and_optims(
         ReplacementState::Replacing => {
             match done_task.get() {
                 None => {
+                    done_task.set(Some(false));
                     // (target handle, source handle)
                     let mut copies: Vec<(Rc<RefCell<Net>>, Rc<RefCell<Net>>)> = Vec::new();
 
                     let mut middle_sources: HashMap<u8, Rc<RefCell<Net>>> = HashMap::new();
 
-                    done_task.set(Some(false));
                     // rank worst -> best (stats are still intact: reset happens below)
                     let mut ranked: Vec<(u8, f32)> = am_ressource
                         .agent_manager
@@ -359,9 +352,8 @@ pub fn run_forwards_and_optims(
         }
 
         ReplacementState::Ready => {
-            *replacement.borrow_mut() = ReplacementState::Idle;
             begin.write(BeginGame);
-            web_sys::console::log_1(&format!("begin days ").into());
+            *replacement.borrow_mut() = ReplacementState::Idle;
         }
     }
 }
@@ -395,15 +387,19 @@ pub fn no_birds_in_main_system(alive: Query<&Bird>, am_ressource: NonSend<AMRess
 
     no_actions_in_flight
 }
-fn no_messages(reader: MessageReader<SwitchGamemode>) -> bool {
-    reader.is_empty()
+fn no_switch<E: Message>(mut switch: MessageReader<E>) -> bool {
+    if switch.read().count() > 0 {
+        return false;
+    }
+    return true;
 }
 
-fn ready_hardware<E: EndsGame>(mut end: MessageReader<SwitchGamemode>, mut commands: Commands) {
-    web_sys::console::log_1(&format!("switch").into());
-    if end.read().count() == 0 {
+fn ready_hardware<E: Message>(mut switch: MessageReader<E>, mut commands: Commands) {
+    if switch.read().count() == 0 {
         return;
     }
+
+    web_sys::console::log_1(&"switch".into());
     commands.queue(|world: &mut World| {
         world.remove_non_send::<AMRessource>();
         world.insert_non_send(AMRessource {

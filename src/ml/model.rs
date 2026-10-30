@@ -18,7 +18,7 @@ use std::rc::Rc;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::spawn_local;
 // ─────────────────────────────────────────────
-// POLICY NETWORK  (8 → 12 → 1, sigmoid output)
+// POLICY NETWORK
 // ─────────────────────────────────────────────
 #[derive(Debug, Module)]
 pub struct FlappyNet<B: Backend> {
@@ -45,7 +45,6 @@ impl<B: Backend> FlappyNet<B> {
         }
     }
 
-    /// Input  shape : [batch, 8]
     /// Output shape : [batch, 1]  — P(jump)
     pub fn forward(
         &self,
