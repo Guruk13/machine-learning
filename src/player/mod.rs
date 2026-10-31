@@ -34,7 +34,7 @@ pub enum GameSets {
 }
 
 #[derive(Debug, Component)]
-#[require(Gravity(1000.), Velocity)]
+#[require(Gravity(950.), Velocity)]
 pub struct Bird {
     pub uid: u8,
 }

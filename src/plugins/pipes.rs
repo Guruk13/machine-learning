@@ -3,10 +3,10 @@ use bevy::camera::primitives::Aabb;
 use bevy::{image::ImageLoaderSettings, prelude::*, time::common_conditions::on_timer};
 use std::time::Duration;
 pub const CANVAS_SIZE: Vec2 = Vec2::new(480., 270.);
-
+use rand::RngExt;
 pub const PLAYER_SIZE: f32 = 25.0;
 pub const PIPE_SIZE: Vec2 = Vec2::new(32., CANVAS_SIZE.y);
-pub const GAP_SIZE: f32 = 125.0;
+pub const GAP_SIZE: f32 = 135.0;
 pub const PIPE_SPEED: f32 = 150.0;
 
 pub struct PipePlugin;
@@ -45,7 +45,9 @@ fn spawn_pipes(mut commands: Commands, asset_server: Res<AssetServer>, time: Res
     });
 
     let transform = Transform::from_xyz(CANVAS_SIZE.x / 2., 0.0, 1.0);
-    let gap_y_position = (time.elapsed_secs() * 4.5616132).sin() * CANVAS_SIZE.y / 6.0;
+    let gap_y_position = (time.elapsed_secs() * 4. + rand::rng().random_range(0.0..=90.0)).sin()
+        * CANVAS_SIZE.y
+        / 6.0;
     let pipe_offset = PIPE_SIZE.y / 2.0 + GAP_SIZE / 2.0;
 
     commands.spawn((

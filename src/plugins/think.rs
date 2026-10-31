@@ -6,7 +6,7 @@ use crate::player::{
     Bird, BirdJump, Dead, GameSets, IndividualScore, PipeBottom, PipeDeath, PipeTop, Player,
     Velocity,
 };
-use crate::{BeginGame, EndGame, GameMode, GamemodeRessource, SwitchGamemode};
+use crate::{BeginGame, EndGame, GameMode, GamemodeRessource};
 use crate::{ReplacementState, ResetGamemode};
 
 use bevy::camera::primitives::Aabb;
@@ -30,25 +30,29 @@ impl Plugin for BrainPlugin {
             }),
         );
         app.configure_sets(
-            FixedLast,
+            FixedPostUpdate,
             GameSets::AI.run_if(|m: Res<GamemodeRessource>| {
                 matches!(m.0, GameMode::Train { .. } | GameMode::Demo { .. })
             }),
         );
-        app.add_systems(FixedFirst, ready_hardware::<ResetGamemode>);
+        app.configure_sets(
+            FixedUpdate,
+            GameSets::AI.run_if(|m: Res<GamemodeRessource>| {
+                matches!(m.0, GameMode::Train { .. } | GameMode::Demo { .. })
+            }),
+        );
 
-        //app.add_systems(FixedUpdate, think.in_set(GameSets::AI));
+        app.add_systems(FixedPreUpdate, ready_hardware::<ResetGamemode>);
+
+        app.add_systems(FixedUpdate, think.in_set(GameSets::AI));
 
         app.add_systems(
-            FixedLast,
-            (
-                think,
-                run_forwards_and_optims.run_if(
-                    no_birds_in_main_system
-                        .and_eager(no_switch::<ResetGamemode>)
-                        .and_eager(not_setup::<BeginGame>),
-                ),
-            )
+            FixedPostUpdate,
+            (run_forwards_and_optims.run_if(
+                no_birds_in_main_system
+                    .and_eager(no_switch::<ResetGamemode>)
+                    .and_eager(not_setup::<BeginGame>),
+            ),)
                 .chain()
                 .in_set(GameSets::AI),
         );
@@ -210,7 +214,6 @@ fn not_setup<E: Message>(mut begin: MessageReader<E>) -> bool {
     if begin.read().count() > 0 {
         return false;
     }
-
     return true;
 }
 
@@ -245,11 +248,9 @@ pub fn run_forwards_and_optims(
 
     match current_state {
         ReplacementState::Idle => {
-            if am_ressource.agent_manager.inner.len() < 2 {
-                panic!("must have at least two agents");
-            }
-            end.write(EndGame);
             *replacement.borrow_mut() = ReplacementState::Descending;
+            end.write(EndGame);
+            //by now gameloop should be stable enough to not have to check agentmanager's state     panic!("must have at least two agents");
 
             // every agent descends on its own episode
             let agents: Vec<_> = am_ressource.agent_manager.inner.values().cloned().collect();
@@ -282,9 +283,7 @@ pub fn run_forwards_and_optims(
             });
         }
 
-        ReplacementState::Descending => {
-            // Please standby
-        }
+        ReplacementState::Descending => {}
 
         ReplacementState::Replacing => {
             match done_task.get() {
@@ -304,7 +303,7 @@ pub fn run_forwards_and_optims(
                         .collect();
                     ranked
                         .sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
-
+                    // 1/3 leading , 1/3 copying , 1/3 innovating
                     let n = ranked.len();
                     let third = (n / 3).max(1);
                     let top_start = n - third;
@@ -369,7 +368,6 @@ pub fn no_birds_in_main_system(alive: Query<&Bird>, am_ressource: NonSend<AMRess
     if !alive.is_empty() {
         return false;
     }
-
     let mut no_actions_in_flight = true;
 
     for (_id, agent) in am_ressource.agent_manager.inner.iter() {
@@ -382,18 +380,14 @@ pub fn no_birds_in_main_system(alive: Query<&Bird>, am_ressource: NonSend<AMRess
                 }
             }
             Err(_e) => {
+                //local task not finished
                 no_actions_in_flight = false;
-                //#[cfg(target_arch = "wasm32")]
-                //web_sys::console::log_1(
-                // &format!( "failed to borrow agent {:?} , need to wait its
-                // action to be complete.", id ) .into(),
-                //);
                 break;
             }
         }
     }
 
-    no_actions_in_flight
+    return no_actions_in_flight;
 }
 fn no_switch<E: Message>(mut switch: MessageReader<E>) -> bool {
     if switch.read().count() > 0 {
@@ -407,7 +401,6 @@ fn ready_hardware<E: Message>(mut switch: MessageReader<E>, mut commands: Comman
         return;
     }
 
-    web_sys::console::log_1(&"switch".into());
     commands.queue(|world: &mut World| {
         world.remove_non_send::<AMRessource>();
         world.insert_non_send(AMRessource {

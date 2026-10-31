@@ -65,18 +65,29 @@ async fn async_main() {
             FixedPostUpdate,
             GameSets::Play.run_if(|m: Res<GamemodeRessource>| matches!(m.0, GameMode::Play { .. })),
         )
+        .configure_sets(
+            FixedLast,
+            GameSets::Play.run_if(|m: Res<GamemodeRessource>| matches!(m.0, GameMode::Play { .. })),
+        )
         .add_systems(Startup, (startup, set_time_scale))
         .add_message::<BeginGame>()
         .add_message::<EndGame>()
         .add_message::<SwitchGamemode>()
         .add_message::<ResetGamemode>()
-        .add_systems(FixedFirst, begin_listener::<BeginGame>)
+        .add_systems(
+            FixedFirst,
+            (
+                switch_gamemode,
+                end_listener::<SwitchGamemode>,
+                begin_listener::<BeginGame>,
+            )
+                .chain(),
+        )
         .add_systems(
             Update,
             (
                 enforce_bird_direction,
                 toggle_pause,
-                switch_gamemode,
                 controls.in_set(GameSets::Play),
             ),
         )
@@ -85,12 +96,11 @@ async fn async_main() {
             (gravity, check_in_bounds, check_collisions).in_set(GameSets::Game),
         )
         .add_systems(
-            FixedPostUpdate,
+            FixedLast,
             ((
-                end_listener::<SwitchGamemode>,
-                (despawn_deads, no_bird).in_set(GameSets::Play),
-                ApplyDeferred,
-                end_listener::<EndGame>.in_set(GameSets::Play),
+                despawn_deads,
+                (no_bird).in_set(GameSets::Play),
+                end_listener::<EndGame>,
             )
                 .chain(),),
         )
@@ -161,24 +171,24 @@ fn switch_gamemode(
     time: Res<Time<Virtual>>,
     mut gamemode: ResMut<GamemodeRessource>,
     mut last_click: Local<Option<f32>>,
-    mut end: MessageWriter<ResetGamemode>,
+    mut switch: MessageWriter<ResetGamemode>,
+    mut begin: MessageWriter<BeginGame>,
 ) {
-    let now = time.elapsed_secs(); // elapsed_seconds() on Bevy < 0.15
-
+    let now = time.elapsed_secs();
     if mouse.just_pressed(MouseButton::Left) {
-        *last_click = Some(now); // every click refreshes the timer
-
+        *last_click = Some(now);
         // Any mode other than Play -> Play on click
         if !matches!(gamemode.0, GameMode::Play { .. }) {
             gamemode.0 = GameMode::play();
-            end.write(ResetGamemode);
+            switch.write(ResetGamemode);
         }
     }
-
     // Play -> Train if the last click was 5+ seconds ago
     if matches!(gamemode.0, GameMode::Play { .. }) {
         if let Some(t) = *last_click {
             if now - t >= PLAY_TIMEOUT_SECS {
+                begin.write(BeginGame);
+                switch.write(ResetGamemode);
                 gamemode.0 = GameMode::train();
                 *last_click = None;
             }
@@ -214,7 +224,6 @@ fn check_in_bounds(
     mut gamemode: Res<GamemodeRessource>,
     mut end: MessageWriter<EndGame>,
 ) {
-    // check each bird
     for (entity, transform) in birds.iter_mut() {
         if transform.translation.y < -CANVAS_SIZE.y / 2.0 - PLAYER_SIZE
             || transform.translation.y > CANVAS_SIZE.y / 2.0 + PLAYER_SIZE
@@ -332,7 +341,7 @@ fn enforce_bird_direction(mut birds: Query<(&mut Transform, &Velocity), With<Bir
 
 fn on_bird_jump(event: On<BirdJump>, mut velocities: Query<&mut Velocity, With<Bird>>) {
     if let Ok(mut velocity) = velocities.get_mut(event.0) {
-        velocity.0 = 500.;
+        velocity.0 = 435.;
     }
 }
 
@@ -378,6 +387,7 @@ fn begin_listener<E: Message>(
 }
 
 //debug helper
+//maybe accelerate when training ?
 fn set_time_scale(mut time: ResMut<Time<Virtual>>) {
     time.set_relative_speed(1.0);
 }
