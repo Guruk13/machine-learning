@@ -139,8 +139,8 @@ impl AgentDefault {
         let _learning_rate = LEARNING_RATES[idx];
 
         Self {
-            gamma: 0.9,
-            learning_rate: 1e-3,
+            gamma: _gamma,
+            learning_rate: _learning_rate,
         }
     }
 }

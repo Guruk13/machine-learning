@@ -238,7 +238,7 @@ pub fn run_forwards_and_optims(
         // incremented after each successful batch of descent
         static EPOCH: Cell<u32> = const { Cell::new(0) };
     }
-    const CULL_EVERY: u32 = 3;
+    const CULL_EVERY: u32 = 5;
 
     let done = DONE.with(Rc::clone);
     let done_task = done.clone();
@@ -249,7 +249,7 @@ pub fn run_forwards_and_optims(
     match current_state {
         ReplacementState::Idle => {
             *replacement.borrow_mut() = ReplacementState::Descending;
-            end.write(EndGame);
+
             //by now gameloop should be stable enough to not have to check agentmanager's state     panic!("must have at least two agents");
 
             // every agent descends on its own episode
@@ -359,6 +359,7 @@ pub fn run_forwards_and_optims(
         }
 
         ReplacementState::Ready => {
+            end.write(EndGame);
             begin.write(BeginGame);
             *replacement.borrow_mut() = ReplacementState::Idle;
         }
