@@ -15,6 +15,7 @@ use std::collections::HashMap;
 use wasm_bindgen_futures::spawn_local;
 pub struct BrainPlugin;
 use crate::ml::multiagent::download_bytes;
+use bevy_egui::{egui, EguiContexts, EguiPlugin, EguiPrimaryContextPass};
 use std::cell::Cell;
 use std::cell::RefCell;
 use std::collections::HashSet;
@@ -61,19 +62,16 @@ impl Plugin for BrainPlugin {
             agent_manager: AgentManager::new(),
             replacement: Rc::new(RefCell::new(ReplacementState::Idle)),
         });
-        app.add_plugins(
-            DefaultPlugins
-                .set(WindowPlugin {
-                    primary_window: Some(Window {
-                        canvas: Some("#bevy".into()),
-                        fit_canvas_to_parent: true,
-                        ..default()
-                    }),
-                    ..default()
-                })
-                .add_plugins(EguiPlugin::default())
-                .add_systems(EguiPrimaryContextPass, hyper_ui),
-        );
+        app.add_plugins(DefaultPlugins.set(WindowPlugin {
+            primary_window: Some(Window {
+                canvas: Some("#bevy".into()),
+                fit_canvas_to_parent: true,
+                ..default()
+            }),
+            ..default()
+        }))
+        .add_plugins(EguiPlugin::default())
+        .add_systems(EguiPrimaryContextPass, hyper_ui);
     }
 }
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -97,6 +95,30 @@ pub fn set_lr(v: f32) {
     LR.store(v.to_bits(), Ordering::Relaxed);
 }
 
+fn hyper_ui(mut contexts: EguiContexts) -> Result {
+    egui::Window::new("Hyperparameters").show(&contexts.ctx_mut()?.clone(), |ui| {
+        let mut g = gamma();
+        if ui
+            .add(egui::Slider::new(&mut g, 0.80..=0.99).text("gamma"))
+            .changed()
+        {
+            set_gamma(g);
+        }
+
+        let mut lr = lr();
+        if ui
+            .add(
+                egui::Slider::new(&mut lr, 1e-6..=1e-2)
+                    .logarithmic(true)
+                    .text("lr"),
+            )
+            .changed()
+        {
+            set_lr(lr);
+        }
+    });
+    Ok(())
+}
 //Think Bird.  what will you have after 500 years ?
 fn think(
     mut commands: Commands,

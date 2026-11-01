@@ -7,7 +7,7 @@ edition = "2021"
 target = "wasm32-unknown-unknown"
 
 [dependencies]
-bevy = "0.19"
+bevy = "0.20"
 log = { version = "0.4", features = ["max_level_debug", "release_max_level_warn"] }
 tracing = { version = "0.1", features = ["max_level_debug", "release_max_level_warn"] }
 burn = { version = "0.21", features = ["autodiff", "wgpu", "cubecl"], default-features = false }
@@ -18,6 +18,9 @@ js-sys = "0.3.105"
 wasm-bindgen = "0.2.122"
 wasm-bindgen-futures = "0.4"
 bevy_egui = "0.43.1"
+egui = "0.37.0"
+
+
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 getrandom = { version = "0.4", features = ["wasm_js"] }
 uuid = { version = "1.23.2", features = ["js"] }

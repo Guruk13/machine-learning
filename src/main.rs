@@ -3,8 +3,8 @@ use bevy::{
     asset::AssetMetaCheck,
     camera::ScalingMode,
     image::ImageAddressMode,
-    math::bounding::{Aabb2d, BoundingCircle, IntersectsVolume},
     prelude::*,
+    prelude::{Aabb2d, BoundingCircle, IntersectsVolume},
     render::{render_resource::AsBindGroup, renderer::RenderGraphSystems::Begin},
     shader::ShaderRef,
     sprite_render::{Material2d, Material2dPlugin},
@@ -150,15 +150,20 @@ fn startup(
     commands.spawn((
         Mesh2d(meshes.add(Rectangle::new(CANVAS_SIZE.x, CANVAS_SIZE.x))),
         MeshMaterial2d(materials.add(BackgroundMaterial {
-            color_texture: asset_server.load_with_settings(
-                "background_color_grass.png",
-                |settings: &mut ImageLoaderSettings| {
-                    settings
-                        .sampler
-                        .get_or_init_descriptor()
-                        .set_address_mode(ImageAddressMode::Repeat);
-                },
-            ),
+            color_texture: {
+                asset_server
+                    .load_builder()
+                    .with_settings(|settings: &mut ImageLoaderSettings| {
+                        settings
+                            .sampler
+                            .get_or_init_descriptor()
+                            .set_address_mode(ImageAddressMode::Repeat);
+                    });
+
+                asset_server
+                    .get_handle("background_color_grass.png")
+                    .unwrap_or({ panic!("not found ") })
+            },
         })),
     ));
     begin.write(BeginGame);
