@@ -61,7 +61,40 @@ impl Plugin for BrainPlugin {
             agent_manager: AgentManager::new(),
             replacement: Rc::new(RefCell::new(ReplacementState::Idle)),
         });
+        app.add_plugins(
+            DefaultPlugins
+                .set(WindowPlugin {
+                    primary_window: Some(Window {
+                        canvas: Some("#bevy".into()),
+                        fit_canvas_to_parent: true,
+                        ..default()
+                    }),
+                    ..default()
+                })
+                .add_plugins(EguiPlugin::default())
+                .add_systems(EguiPrimaryContextPass, hyper_ui),
+        );
     }
+}
+use std::sync::atomic::{AtomicU32, Ordering};
+
+pub const CULL_EVERY: u32 = 100;
+
+static GAMMA: AtomicU32 = AtomicU32::new(0.99f32.to_bits());
+static LR: AtomicU32 = AtomicU32::new(3e-4f32.to_bits());
+
+pub fn gamma() -> f32 {
+    f32::from_bits(GAMMA.load(Ordering::Relaxed))
+}
+pub fn set_gamma(v: f32) {
+    GAMMA.store(v.to_bits(), Ordering::Relaxed);
+}
+
+pub fn lr() -> f32 {
+    f32::from_bits(LR.load(Ordering::Relaxed))
+}
+pub fn set_lr(v: f32) {
+    LR.store(v.to_bits(), Ordering::Relaxed);
 }
 
 //Think Bird.  what will you have after 500 years ?
@@ -303,19 +336,22 @@ pub fn run_forwards_and_optims(
                         .collect();
                     ranked
                         .sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
-                    // 1/3 leading , 1/3 copying , 1/3 innovating
+                    // 1/3 leading (kept), 1/3 middle (kept), 1/3 replaced:
+                    //   worst half of it -> removed (fresh agents next run)
+                    //   best half of it  -> clones of the top third
                     let n = ranked.len();
                     let third = (n / 3).max(1);
                     let top_start = n - third;
-                    let mid_start = top_start.saturating_sub(third);
+                    let bottom_end = third.min(n);
+                    let remove_n = (bottom_end + 1) / 2; // worst half of the bottom third
 
                     let keys: Vec<u8> = ranked.iter().map(|(k, _)| *k).collect();
                     let top: Vec<u8> = keys[top_start..].iter().rev().copied().collect(); // best-first
-                    let middle: Vec<u8> = keys[mid_start..top_start].to_vec();
-                    let bottom: HashSet<u8> = keys[..mid_start].iter().copied().collect();
+                    let cloned: Vec<u8> = keys[remove_n..bottom_end].to_vec();
+                    let bottom: HashSet<u8> = keys[..remove_n].iter().copied().collect();
 
-                    // middle third <- clones of top third (round-robin)
-                    for (i, k) in middle.iter().enumerate() {
+                    // better half of bottom third <- clones of top third (round-robin)
+                    for (i, k) in cloned.iter().enumerate() {
                         let src_key = top[i % top.len()];
                         let src = am_ressource.agent_manager.inner[&src_key]
                             .borrow()
