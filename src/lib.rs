@@ -7,6 +7,7 @@ pub mod plugins;
 
 pub mod staticdevice;
 
+use burn::cubecl::wgpu::WebGpu;
 pub use plugins::*;
 
 #[derive(Debug, Clone)]
@@ -16,8 +17,6 @@ pub enum ReplacementState {
     Replacing,
     Ready,
 }
-type MyBackend = Wgpu<f32, i32>;
-pub type MyAutodiffBackend = Autodiff<MyBackend>;
 #[derive(Debug, Clone, Copy, Reflect, PartialEq)]
 pub enum GameMode {
     Train { birdnumber: u8, opacity: f32 },

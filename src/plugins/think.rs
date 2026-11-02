@@ -96,6 +96,7 @@ pub fn set_lr(v: f32) {
 }
 
 fn hyper_ui(mut contexts: EguiContexts) -> Result {
+    web_sys::console::log_1(&format!(" pado maplan").into());
     egui::Window::new("Hyperparameters").show(&contexts.ctx_mut()?.clone(), |ui| {
         let mut g = gamma();
         if ui
@@ -402,7 +403,7 @@ pub fn run_forwards_and_optims(
                     spawn_local(async move {
                         for (target, source) in copies.iter() {
                             let model = source.borrow().clone(); // guard dropped at end of statement
-                            *target.borrow_mut() = model;
+                            *target.borrow_mut() = *model;
                         }
                         done_task.set(Some(true));
                     });

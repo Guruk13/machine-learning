@@ -1,5 +1,5 @@
 use super::agent_utils::{Action, AgentDefault, AgentState, AgentStats, EpisodeStep};
-use burn::tensor::backend::Backend;
+use burn::backend::{Backend, Wgpu, WgpuDevice};
 use burn::{
     module::Module,
     nn::{Linear, LinearConfig, Relu},
@@ -8,7 +8,7 @@ use burn::{
 };
 
 use super::OPTIMIZER_EPSILON;
-use crate::ml::multiagent::get_global_device;
+use crate::ml::multiagent::{get_global_device, Dev};
 use crate::MyAutodiffBackend;
 use burn::record::{BinBytesRecorder, FullPrecisionSettings, Recorder};
 use burn::tensor::Device;
@@ -22,8 +22,8 @@ use wasm_bindgen_futures::spawn_local;
 // ─────────────────────────────────────────────
 #[derive(Debug, Module)]
 pub struct FlappyNet<B: Backend> {
-    linear1: Linear<MyAutodiffBackend>,
-    linear2: Linear<MyAutodiffBackend>,
+    linear1: Linear<B>,
+    linear2: Linear<B>,
     activation: Relu,
     _marker: PhantomData<B>,
 }
@@ -46,11 +46,7 @@ impl<B: Backend> FlappyNet<B> {
     }
 
     /// Output shape : [batch, 1]  — P(jump)
-    pub fn forward(
-        &self,
-        x: Tensor<MyAutodiffBackend, 2>,
-        _training: bool,
-    ) -> Tensor<MyAutodiffBackend, 2> {
+    pub fn forward(&self, x: Tensor<2>, _training: bool) -> Tensor<2> {
         let x = self.linear1.forward(x);
         let x = self.activation.forward(x);
         sigmoid(self.linear2.forward(x))
@@ -87,7 +83,7 @@ pub type Net = FlappyNet<MyAutodiffBackend>;
 pub struct FlappyGradientAgent {
     flappy: Rc<RefCell<Net>>,
     pub(crate) optimizer: OptimizerAdaptor<Adam, Net, MyAutodiffBackend>,
-    pub(crate) device: Device<MyAutodiffBackend>,
+    pub(crate) device: Dev,
     pub(crate) state: AgentState,
     pub(crate) stats: AgentStats,
     pub(crate) settings: AgentDefault,
@@ -231,9 +227,7 @@ impl FlappyGradientAgent {
             .flat_map(|s| s.state.to_array())
             .collect();
 
-        let states =
-            Tensor::<MyAutodiffBackend, 1>::from_floats(flat_states.as_slice(), &self.device)
-                .reshape([n, 5]);
+        let states = Tensor::<1>::from_floats(flat_states.as_slice(), &self.device).reshape([n, 5]);
 
         // 1.0 = jumped, 0.0 = did nothing (requires Action::Jump as i64 == 1)
         let action_idx: Vec<i64> = self.state.episode.iter().map(|s| s.action as i64).collect();
@@ -243,8 +237,7 @@ impl FlappyGradientAgent {
         let p = p.clamp(1e-6, 1.0 - 1e-6); // avoid ln(0)
 
         let jumped: Vec<f32> = action_idx.iter().map(|&a| a as f32).collect();
-        let jumped = Tensor::<MyAutodiffBackend, 1>::from_floats(jumped.as_slice(), &self.device)
-            .reshape([n, 1]);
+        let jumped = Tensor::<1>::from_floats(jumped.as_slice(), &self.device).reshape([n, 1]);
 
         let log_p = p.clone().log();
         let one_minus_p = p.clone().neg().add_scalar(1.0);
@@ -255,8 +248,7 @@ impl FlappyGradientAgent {
             jumped.clone() * log_p.clone() + jumped.neg().add_scalar(1.0) * log_1mp.clone(); // [n, 1]
 
         let returns_t =
-            Tensor::<MyAutodiffBackend, 1>::from_floats(normalised.as_slice(), &self.device)
-                .reshape([n, 1]);
+            Tensor::<1>::from_floats(normalised.as_slice(), &self.device).reshape([n, 1]);
 
         // Bernoulli entropy: −[p·ln p + (1−p)·ln(1−p)]
         let entropy = (p * log_p + one_minus_p * log_1mp).mean().neg();
@@ -291,10 +283,9 @@ impl FlappyGradientAgent {
 
     // ── private ────────────────────────────────────────────────────────────
 
-    fn state_to_tensor(&self) -> Tensor<MyAutodiffBackend, 2> {
+    fn state_to_tensor(&self) -> Tensor<2> {
         let s = self.state.current_gamestate.unwrap();
-        Tensor::<MyAutodiffBackend, 1>::from_floats(s.to_array().as_slice(), &self.device)
-            .reshape([1, 5])
+        Tensor::<1>::from_floats(s.to_array().as_slice(), &self.device).reshape([1, 5])
     }
 }
 impl FlappyGradientAgent {

@@ -18,6 +18,7 @@ use crate::ml::multiagent::AgentManager;
 use crate::player::Pipe;
 use crate::player::*;
 use crate::{BeginGame, EndGame, ResetGamemode, SwitchGamemode};
+use bevy_egui::{EguiGlobalSettings, PrimaryEguiContext};
 use burn::tensor::Device;
 use burn::{backend::wgpu::WgpuDevice, cubecl::ir::BranchOpCode::Switch};
 use flappy_bird::BrainPlugin;
@@ -32,13 +33,9 @@ fn main() {
     wasm_bindgen_futures::spawn_local(async_main());
 }
 async fn async_main() {
-    let device: Device<MyAutodiffBackend> = Default::default();
-    burn::backend::wgpu::init_setup_async::<burn::backend::wgpu::graphics::WebGpu>(
-        &device,
-        Default::default(),
-    )
-    .await;
-    set_global_device(device.clone());
+    let wgpu_device = WgpuDevice::default();
+    init_setup_async::<WebGpu>(&wgpu_device, Default::default()).await;
+    set_global_device(wgpu_device);
 
     App::new()
         .add_plugins(DefaultPlugins.set(AssetPlugin {
@@ -116,12 +113,18 @@ fn startup(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<BackgroundMaterial>>,
     mut begin: MessageWriter<BeginGame>,
+    mut egui_settings: ResMut<EguiGlobalSettings>,
 ) {
-    let (config, _) = config_store.config_mut::<DefaultGizmoConfigGroup>();
-    config.enabled = false;
+    egui_settings.auto_create_primary_context = false; // before spawning the camera
 
     commands.spawn((
         Camera2d,
+        Camera {
+            order: 100,
+            clear_color: ClearColorConfig::None,
+            ..default()
+        },
+        PrimaryEguiContext, // <- Egui context lives on this camera
         Projection::Orthographic(OrthographicProjection {
             scaling_mode: ScalingMode::AutoMax {
                 max_width: CANVAS_SIZE.x,

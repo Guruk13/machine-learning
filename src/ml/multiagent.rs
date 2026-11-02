@@ -3,7 +3,8 @@ use super::model::FlappyGradientAgent;
 use crate::ml::agent_utils::AgentDefault;
 use crate::ReplacementState;
 use bevy::ecs::prelude::Resource;
-use burn::backend::wgpu::WgpuDevice;
+use burn::backend::{Device, WgpuDevice};
+use burn::tensor::Device;
 use std::collections::HashMap;
 use std::sync::OnceLock;
 use std::{cell::RefCell, rc::Rc};
@@ -48,7 +49,9 @@ pub struct AMRessource {
 unsafe impl Send for AMRessource {}
 unsafe impl Sync for AMRessource {}
 
-static DEVICE: OnceLock<WgpuDevice> = OnceLock::new();
+pub type Dev = <MyAutodiffBackend as Backend>::Device;
+
+static DEVICE: OnceLock<Dev> = OnceLock::new();
 
 pub fn set_global_device(device: WgpuDevice) {
     DEVICE
@@ -71,7 +74,7 @@ pub fn download_bytes(bytes: &[u8], filename: &str) {
     web_sys::Url::revoke_object_url(&url).ok();
 }
 
-pub fn get_global_device() -> WgpuDevice {
+pub fn get_global_device() -> Dev {
     DEVICE
         .get()
         .expect("device not initialized — call init() from JS before constructing agents")
