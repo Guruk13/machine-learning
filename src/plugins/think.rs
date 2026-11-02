@@ -1,6 +1,6 @@
 use super::pipes::*;
 use crate::ml::agent_utils::{Action, GameStateFeatures, RewardPrizes};
-use crate::ml::model::Net;
+use crate::ml::model::FlappyNet;
 use crate::ml::multiagent::AMRessource;
 use crate::player::{
     Bird, BirdJump, Dead, GameSets, IndividualScore, PipeBottom, PipeDeath, PipeTop, Player,
@@ -11,6 +11,7 @@ use crate::{ReplacementState, ResetGamemode};
 
 use bevy::camera::primitives::Aabb;
 use bevy::prelude::*;
+use burn::module::Module;
 use std::collections::HashMap;
 use wasm_bindgen_futures::spawn_local;
 pub struct BrainPlugin;
@@ -62,16 +63,9 @@ impl Plugin for BrainPlugin {
             agent_manager: AgentManager::new(),
             replacement: Rc::new(RefCell::new(ReplacementState::Idle)),
         });
-        app.add_plugins(DefaultPlugins.set(WindowPlugin {
-            primary_window: Some(Window {
-                canvas: Some("#bevy".into()),
-                fit_canvas_to_parent: true,
-                ..default()
-            }),
-            ..default()
-        }))
-        .add_plugins(EguiPlugin::default())
-        .add_systems(EguiPrimaryContextPass, hyper_ui);
+
+        //app.add_plugins(EguiPlugin::default())
+        //    .add_systems(EguiPrimaryContextPass, hyper_ui);
     }
 }
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -211,7 +205,9 @@ fn think(
                 agent.state.score = score.0;
                 let model = agent.get_model();
                 //
-                let bytes = model.borrow().weights_to_bytes();
+                let tensor_bytes = model.borrow().clone().into_record().into_bytes();
+
+                let bytes = tensor_bytes.unwrap().to_vec();
                 #[cfg(target_arch = "wasm32")]
                 download_bytes(&bytes, &format!("flappy_score{}_{}.bin", score.0, bird.uid));
             }
@@ -346,9 +342,10 @@ pub fn run_forwards_and_optims(
                 None => {
                     done_task.set(Some(false));
                     // (target handle, source handle)
-                    let mut copies: Vec<(Rc<RefCell<Net>>, Rc<RefCell<Net>>)> = Vec::new();
+                    let mut copies: Vec<(Rc<RefCell<FlappyNet>>, Rc<RefCell<FlappyNet>>)> =
+                        Vec::new();
 
-                    let mut middle_sources: HashMap<u8, Rc<RefCell<Net>>> = HashMap::new();
+                    let mut middle_sources: HashMap<u8, Rc<RefCell<FlappyNet>>> = HashMap::new();
 
                     // rank worst -> best (stats are still intact: reset happens below)
                     let mut ranked: Vec<(u8, f32)> = am_ressource
@@ -403,7 +400,7 @@ pub fn run_forwards_and_optims(
                     spawn_local(async move {
                         for (target, source) in copies.iter() {
                             let model = source.borrow().clone(); // guard dropped at end of statement
-                            *target.borrow_mut() = *model;
+                            *target.borrow_mut() = model;
                         }
                         done_task.set(Some(true));
                     });

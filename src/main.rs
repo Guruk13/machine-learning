@@ -19,23 +19,23 @@ use crate::player::Pipe;
 use crate::player::*;
 use crate::{BeginGame, EndGame, ResetGamemode, SwitchGamemode};
 use bevy_egui::{EguiGlobalSettings, PrimaryEguiContext};
+use burn::backend::wgpu::WgpuDevice;
 use burn::tensor::Device;
-use burn::{backend::wgpu::WgpuDevice, cubecl::ir::BranchOpCode::Switch};
 use flappy_bird::BrainPlugin;
 use std::rc::Rc;
 use std::time::Duration;
 use std::{cell::RefCell, collections::HashSet};
 
-#[derive(Debug, Resource, Clone)]
-pub struct BurnDevice(pub WgpuDevice);
 fn main() {
     // sync main — just kicks off the async work and doesn't wait for it
     wasm_bindgen_futures::spawn_local(async_main());
 }
 async fn async_main() {
-    let wgpu_device = WgpuDevice::default();
-    init_setup_async::<WebGpu>(&wgpu_device, Default::default()).await;
-    set_global_device(wgpu_device);
+    let device = Device::wgpu_options()
+        .init_async()
+        .await
+        .expect("Unable to initialize WebGPU for inference");
+    set_global_device(device);
 
     App::new()
         .add_plugins(DefaultPlugins.set(AssetPlugin {
@@ -47,7 +47,6 @@ async fn async_main() {
             BrainPlugin,
             Material2dPlugin::<BackgroundMaterial>::default(),
         ))
-        .insert_resource(BurnDevice(device))
         .insert_resource(GamemodeRessource(GameMode::train()))
         .init_resource::<Score>()
         .configure_sets(
@@ -113,9 +112,9 @@ fn startup(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<BackgroundMaterial>>,
     mut begin: MessageWriter<BeginGame>,
-    mut egui_settings: ResMut<EguiGlobalSettings>,
+    //mut egui_settings: ResMut<EguiGlobalSettings>,
 ) {
-    egui_settings.auto_create_primary_context = false; // before spawning the camera
+    //egui_settings.auto_create_primary_context = false; // before spawning the camera
 
     commands.spawn((
         Camera2d,
@@ -165,7 +164,7 @@ fn startup(
 
                 asset_server
                     .get_handle("background_color_grass.png")
-                    .unwrap_or({ panic!("not found ") })
+                    .expect("none")
             },
         })),
     ));

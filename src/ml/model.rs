@@ -1,19 +1,16 @@
 use super::agent_utils::{Action, AgentDefault, AgentState, AgentStats, EpisodeStep};
-use burn::backend::{Backend, Wgpu, WgpuDevice};
+use super::OPTIMIZER_EPSILON;
+use crate::ml::multiagent::get_global_device;
+use burn::optim::ModuleOptimizer;
+use burn::tensor::Device;
 use burn::{
     module::Module,
     nn::{Linear, LinearConfig, Relu},
-    optim::{adaptor::OptimizerAdaptor, Adam, AdamConfig, GradientsParams, Optimizer},
+    optim::{AdamConfig, GradientsParams},
     tensor::{activation::sigmoid, Tensor},
 };
-
-use super::OPTIMIZER_EPSILON;
-use crate::ml::multiagent::{get_global_device, Dev};
-use crate::MyAutodiffBackend;
-use burn::record::{BinBytesRecorder, FullPrecisionSettings, Recorder};
-use burn::tensor::Device;
+//use burn::{BinBytesRecorder, FullPrecisionSettings, Recorder};
 use std::cell::RefCell;
-use std::marker::PhantomData;
 use std::rc::Rc;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::spawn_local;
@@ -21,27 +18,19 @@ use wasm_bindgen_futures::spawn_local;
 // POLICY NETWORK
 // ─────────────────────────────────────────────
 #[derive(Debug, Module)]
-pub struct FlappyNet<B: Backend> {
-    linear1: Linear<B>,
-    linear2: Linear<B>,
+pub struct FlappyNet {
+    linear1: Linear,
+    linear2: Linear,
     activation: Relu,
-    _marker: PhantomData<B>,
 }
 
-impl<B: Backend> Default for FlappyNet<B> {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl<B: Backend> FlappyNet<B> {
+impl FlappyNet {
     pub fn new() -> Self {
         let device = get_global_device();
         Self {
             activation: Relu::new(),
             linear1: LinearConfig::new(5, 10).init(&device),
             linear2: LinearConfig::new(10, 1).init(&device),
-            _marker: PhantomData,
         }
     }
 
@@ -51,13 +40,7 @@ impl<B: Backend> FlappyNet<B> {
         let x = self.activation.forward(x);
         sigmoid(self.linear2.forward(x))
     }
-    pub fn weights_to_bytes(&self) -> Vec<u8> {
-        BinBytesRecorder::<FullPrecisionSettings>::default()
-            .record(self.clone().into_record(), ())
-            .expect("failed to serialize weights")
-    }
 }
-pub type Net = FlappyNet<MyAutodiffBackend>;
 
 // ─────────────────────────────────────────────
 // AGENT — plain REINFORCE, no critic
@@ -81,9 +64,9 @@ pub type Net = FlappyNet<MyAutodiffBackend>;
 // two gradient steps) from racing each other.
 #[wasm_bindgen]
 pub struct FlappyGradientAgent {
-    flappy: Rc<RefCell<Net>>,
-    pub(crate) optimizer: OptimizerAdaptor<Adam, Net, MyAutodiffBackend>,
-    pub(crate) device: Dev,
+    flappy: Rc<RefCell<FlappyNet>>,
+    pub(crate) optimizer: ModuleOptimizer,
+    pub(crate) device: Device,
     pub(crate) state: AgentState,
     pub(crate) stats: AgentStats,
     pub(crate) settings: AgentDefault,
@@ -267,7 +250,7 @@ impl FlappyGradientAgent {
         // ── f. Backprop + optimizer step ────────────────────────────────────
         let grads = loss.backward();
         let net = self.flappy.borrow().clone();
-        let grads = GradientsParams::from_grads::<MyAutodiffBackend, _>(grads, &net);
+        let grads = GradientsParams::from_grads::<_>(grads, &net);
         // take an owned FlappyNet out (clones the net, not the Rc/RefCell)
 
         let updated = self.optimizer.step(self.settings.learning_rate, net, grads);
@@ -290,14 +273,14 @@ impl FlappyGradientAgent {
 }
 impl FlappyGradientAgent {
     // Rust-only: no attribute, so wasm_bindgen never inspects it
-    pub fn set_model(&mut self, net: Net) {
+    pub fn set_model(&mut self, net: FlappyNet) {
         *self.flappy.borrow_mut() = net;
     }
-    pub fn get_model(&self) -> Rc<RefCell<Net>> {
+    pub fn get_model(&self) -> Rc<RefCell<FlappyNet>> {
         self.flappy.clone()
     }
 }
 
-pub fn get_optimizer() -> OptimizerAdaptor<Adam, Net, MyAutodiffBackend> {
+pub fn get_optimizer() -> ModuleOptimizer {
     AdamConfig::new().with_epsilon(OPTIMIZER_EPSILON).init()
 }

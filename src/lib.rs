@@ -1,13 +1,11 @@
 use bevy::prelude::*;
-use burn::backend::wgpu::Wgpu;
-use burn::backend::Autodiff;
+
 pub mod ml;
 pub mod player;
 pub mod plugins;
 
 pub mod staticdevice;
 
-use burn::cubecl::wgpu::WebGpu;
 pub use plugins::*;
 
 #[derive(Debug, Clone)]
