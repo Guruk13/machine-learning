@@ -18,6 +18,7 @@ use crate::ml::multiagent::AgentManager;
 use crate::player::Pipe;
 use crate::player::*;
 use crate::{BeginGame, EndGame, ResetGamemode, SwitchGamemode};
+use bevy::color::Color;
 use bevy_egui::{EguiGlobalSettings, PrimaryEguiContext};
 use burn::backend::wgpu::WgpuDevice;
 use burn::tensor::Device;
@@ -25,6 +26,8 @@ use flappy_bird::BrainPlugin;
 use std::rc::Rc;
 use std::time::Duration;
 use std::{cell::RefCell, collections::HashSet};
+
+use bevy::image::{ImageSampler, ImageSamplerDescriptor};
 
 fn main() {
     // sync main — just kicks off the async work and doesn't wait for it
@@ -34,7 +37,8 @@ async fn async_main() {
     let device = Device::wgpu_options()
         .init_async()
         .await
-        .expect("Unable to initialize WebGPU for inference");
+        .expect("Unable to initialize WebGPU for inference")
+        .autodiff();
     set_global_device(device);
 
     App::new()
@@ -115,14 +119,12 @@ fn startup(
     //mut egui_settings: ResMut<EguiGlobalSettings>,
 ) {
     //egui_settings.auto_create_primary_context = false; // before spawning the camera
-
+    config_store
+        .config_mut::<DefaultGizmoConfigGroup>()
+        .0
+        .enabled = false;
     commands.spawn((
         Camera2d,
-        Camera {
-            order: 100,
-            clear_color: ClearColorConfig::None,
-            ..default()
-        },
         PrimaryEguiContext, // <- Egui context lives on this camera
         Projection::Orthographic(OrthographicProjection {
             scaling_mode: ScalingMode::AutoMax {
@@ -160,11 +162,8 @@ fn startup(
                             .sampler
                             .get_or_init_descriptor()
                             .set_address_mode(ImageAddressMode::Repeat);
-                    });
-
-                asset_server
-                    .get_handle("background_color_grass.png")
-                    .expect("none")
+                    })
+                    .load("background_color_grass.png")
             },
         })),
     ));
@@ -416,6 +415,6 @@ pub struct BackgroundMaterial {
 
 impl Material2d for BackgroundMaterial {
     fn fragment_shader() -> ShaderRef {
-        "background.wgsl".into()
+        "background.wesl".into()
     }
 }
