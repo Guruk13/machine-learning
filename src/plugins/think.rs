@@ -68,8 +68,8 @@ impl Plugin for BrainPlugin {
 }
 use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 
-pub static GAMMA: AtomicU32 = AtomicU32::new(0.99f32.to_bits());
-pub static LR: AtomicU64 = AtomicU64::new(3e-4f64.to_bits());
+pub static GAMMA: AtomicU32 = AtomicU32::new(0.90f32.to_bits());
+pub static LR: AtomicU64 = AtomicU64::new(1e-3f64.to_bits());
 
 pub fn get_gamma() -> f32 {
     f32::from_bits(GAMMA.load(Ordering::Relaxed))
@@ -85,14 +85,13 @@ pub fn set_lr(v: f64) {
     LR.store(v.to_bits(), Ordering::Relaxed);
 }
 fn hyper_ui(mut contexts: EguiContexts) -> Result {
-    web_sys::console::log_1(&format!(" pado maplan").into());
     egui::Window::new("Hyperparameters").show(&contexts.ctx_mut()?.clone(), |ui| {
         let mut g = get_gamma();
         if ui
-            .add(egui::Slider::new(&mut g, 0.80..=0.99).text("gamma"))
+            .add(egui::Slider::new(&mut g, 0.80..=0.99).text("Gamma: whisper -> shout the grades "))
             .changed()
         {
-            set_gamma(g);
+            set_gama(g);
         }
 
         let mut lr = get_lr();
@@ -100,7 +99,7 @@ fn hyper_ui(mut contexts: EguiContexts) -> Result {
             .add(
                 egui::Slider::new(&mut lr, 1e-6..=1e-2)
                     .logarithmic(true)
-                    .text("lr"),
+                    .text("Learning Rate: short -> long term goals "),
             )
             .changed()
         {

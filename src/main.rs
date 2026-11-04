@@ -77,7 +77,7 @@ async fn async_main() {
         .add_systems(
             FixedFirst,
             (
-                switch_gamemode,
+                //switch_gamemode,
                 end_listener::<SwitchGamemode>,
                 begin_listener::<BeginGame>,
             )
