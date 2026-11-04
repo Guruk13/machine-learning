@@ -106,6 +106,7 @@ async fn async_main() {
         )
         // this should be a message , but i need to finish this project
         .add_observer(on_bird_jump)
+        .insert_resource(EguiGlobalSettings::default())
         .run();
 }
 
@@ -116,9 +117,9 @@ fn startup(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<BackgroundMaterial>>,
     mut begin: MessageWriter<BeginGame>,
-    //mut egui_settings: ResMut<EguiGlobalSettings>,
+    mut egui_settings: ResMut<EguiGlobalSettings>,
 ) {
-    //egui_settings.auto_create_primary_context = false; // before spawning the camera
+    egui_settings.auto_create_primary_context = false; // before spawning the camera
     config_store
         .config_mut::<DefaultGizmoConfigGroup>()
         .0
@@ -347,7 +348,7 @@ fn enforce_bird_direction(mut birds: Query<(&mut Transform, &Velocity), With<Bir
 
 fn on_bird_jump(event: On<BirdJump>, mut velocities: Query<&mut Velocity, With<Bird>>) {
     if let Ok(mut velocity) = velocities.get_mut(event.0) {
-        velocity.0 = 440.;
+        velocity.0 = 460.;
     }
 }
 

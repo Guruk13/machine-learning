@@ -1,6 +1,5 @@
 use super::agent_utils::GameStateFeatures;
 use super::model::FlappyGradientAgent;
-use crate::ml::agent_utils::AgentDefault;
 use crate::ReplacementState;
 use bevy::ecs::prelude::Resource;
 use burn::tensor::Device;
@@ -25,9 +24,10 @@ impl AgentManager {
     }
 
     pub fn bind_agent(&mut self, key: u8, game_state: GameStateFeatures) {
-        let agent = self.inner.entry(key).or_insert_with(|| {
-            Rc::new(RefCell::new(FlappyGradientAgent::new(AgentDefault::new())))
-        });
+        let agent = self
+            .inner
+            .entry(key)
+            .or_insert_with(|| Rc::new(RefCell::new(FlappyGradientAgent::new())));
         agent
             .borrow_mut()
             .state

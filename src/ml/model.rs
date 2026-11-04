@@ -1,8 +1,10 @@
-use super::agent_utils::{Action, AgentDefault, AgentState, AgentStats, EpisodeStep};
+use super::agent_utils::{Action, AgentState, AgentStats, EpisodeStep};
 use super::OPTIMIZER_EPSILON;
 use crate::ml::multiagent::get_global_device;
+use crate::think::{get_gamma, get_lr};
 use burn::optim::ModuleOptimizer;
-use burn::tensor::Device;
+use burn::store::ModuleRecord;
+use burn::tensor::{Bytes, Device};
 use burn::{
     module::Module,
     nn::{Linear, LinearConfig, Relu},
@@ -69,7 +71,7 @@ pub struct FlappyGradientAgent {
     pub(crate) device: Device,
     pub(crate) state: AgentState,
     pub(crate) stats: AgentStats,
-    pub(crate) settings: AgentDefault,
+    pub(crate) prime: Option<Vec<u8>>,
 
     // background-inference bookkeeping
     pending_action: Rc<RefCell<Option<Action>>>,
@@ -80,10 +82,11 @@ pub struct FlappyGradientAgent {
 #[wasm_bindgen]
 impl FlappyGradientAgent {
     #[wasm_bindgen(constructor)]
-    pub fn new(settings: AgentDefault) -> Self {
+    pub fn new() -> Self {
         let device = get_global_device();
         Self {
             flappy: Rc::new(RefCell::new(FlappyNet::new())),
+            prime: None,
             device: device.clone(),
             optimizer: get_optimizer(),
             state: AgentState::new(),
@@ -91,11 +94,40 @@ impl FlappyGradientAgent {
             pending_action: Rc::new(RefCell::new(None)),
             action_inflight: Rc::new(RefCell::new(false)),
             last_action: Action::DoNothing,
-            settings,
         }
     }
+    // "prime functions allow to only record valuable models and create new ones"
+    pub fn record_prime(&mut self) -> Option<Vec<u8>> {
+        let record = self
+            .flappy
+            .borrow()
+            .clone()
+            .into_record()
+            .into_bytes()
+            .expect("serialization failed ")
+            .to_vec();
 
-    pub fn new_model_reset_stats(&mut self) {
+        self.prime = Some(record);
+
+        self.prime.clone()
+    }
+    pub fn replace_prime(&mut self, prime: Option<Vec<u8>>) {
+        self.reset_stats();
+        let Some(bytes) = prime else {
+            *self.flappy.borrow_mut() = FlappyNet::new();
+            return;
+        };
+
+        let model = self
+            .flappy
+            .borrow()
+            .clone()
+            .load_record(ModuleRecord::from_bytes(Bytes::from_bytes_vec(bytes)).unwrap());
+
+        *self.flappy.borrow_mut() = model;
+    }
+
+    pub fn reset_stats(&mut self) {
         self.state = AgentState::new();
         self.stats.episodes = 0;
         //agent.stats.entropy_sum = 0.;
@@ -192,7 +224,7 @@ impl FlappyGradientAgent {
         let mut returns = vec![0.0f32; n];
         let mut running = 0.0f32;
         for t in (0..n).rev() {
-            running = self.state.episode[t].reward + self.settings.gamma * running;
+            running = self.state.episode[t].reward + get_gamma() * running;
             returns[t] = running;
         }
 
@@ -253,7 +285,7 @@ impl FlappyGradientAgent {
         let grads = GradientsParams::from_grads::<_>(grads, &net);
         // take an owned FlappyNet out (clones the net, not the Rc/RefCell)
 
-        let updated = self.optimizer.step(self.settings.learning_rate, net, grads);
+        let updated = self.optimizer.step(get_lr(), net, grads);
 
         // write the new FlappyNet back into the same cell
         *self.flappy.borrow_mut() = updated;

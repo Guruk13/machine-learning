@@ -103,47 +103,6 @@ impl AgentState {
         self.current_gamestate = state;
     }
 }
-/** In ML, gamma (γ) is the discount factor used in reinforcement learning (RL).
- * It's a value between 0 and 1 that determines how much an agent values future rewards relative to immediate rewards.
-The Bellman Equation Context
-Gamma appears in the return (cumulative reward) calculation:
-G_t = r_t + γ·r_{t+1} + γ²·r_{t+2} + γ³·r_{t+3} + ...
-What the Value Means
-GammaBehaviorγ = 0 Fully myopic — only cares about the immediate next rewardγ →
-1Fully far-sighted — values future rewards almost as much as current onesγ = 0.99 Common default — slight preference for sooner rewards */
-#[derive(Debug)]
-#[wasm_bindgen]
-pub struct AgentDefault {
-    pub gamma: f32,
-    pub learning_rate: f64,
-}
-
-impl Default for AgentDefault {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl AgentDefault {
-    pub fn new() -> Self {
-        let r1 = js_sys::Math::random();
-        let r2 = js_sys::Math::random();
-
-        // gamma: random pick from {0.90, 0.91, ..., 0.99}
-        let _gamma = (89 + (r1 * 6.0).floor() as u32) as f32 / 100.0;
-        //
-        // { gamma: 0.9, learning_rate: 0.001 }
-        // learning_rate: random pick from curated values
-        const LEARNING_RATES: [f64; 2] = [1e-3, 1e-4];
-        let idx = (r2 * LEARNING_RATES.len() as f64).floor() as usize;
-        let _learning_rate = LEARNING_RATES[idx];
-
-        Self {
-            gamma: _gamma,
-            learning_rate: _learning_rate,
-        }
-    }
-}
 
 impl Default for RewardPrizes {
     fn default() -> Self {

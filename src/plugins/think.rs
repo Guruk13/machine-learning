@@ -1,6 +1,5 @@
 use super::pipes::*;
 use crate::ml::agent_utils::{Action, GameStateFeatures, RewardPrizes};
-use crate::ml::model::FlappyNet;
 use crate::ml::multiagent::AMRessource;
 use crate::player::{
     Bird, BirdJump, Dead, GameSets, IndividualScore, PipeBottom, PipeDeath, PipeTop, Player,
@@ -19,7 +18,6 @@ use crate::ml::multiagent::download_bytes;
 use bevy_egui::{egui, EguiContexts, EguiPlugin, EguiPrimaryContextPass};
 use std::cell::Cell;
 use std::cell::RefCell;
-use std::collections::HashSet;
 use std::rc::Rc;
 
 use crate::ml::multiagent::AgentManager;
@@ -64,35 +62,32 @@ impl Plugin for BrainPlugin {
             replacement: Rc::new(RefCell::new(ReplacementState::Idle)),
         });
 
-        //app.add_plugins(EguiPlugin::default())
-        //    .add_systems(EguiPrimaryContextPass, hyper_ui);
+        app.add_plugins(EguiPlugin::default())
+            .add_systems(EguiPrimaryContextPass, hyper_ui);
     }
 }
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 
-pub const CULL_EVERY: u32 = 100;
+pub static GAMMA: AtomicU32 = AtomicU32::new(0.99f32.to_bits());
+pub static LR: AtomicU64 = AtomicU64::new(3e-4f64.to_bits());
 
-static GAMMA: AtomicU32 = AtomicU32::new(0.99f32.to_bits());
-static LR: AtomicU32 = AtomicU32::new(3e-4f32.to_bits());
-
-pub fn gamma() -> f32 {
+pub fn get_gamma() -> f32 {
     f32::from_bits(GAMMA.load(Ordering::Relaxed))
 }
 pub fn set_gamma(v: f32) {
     GAMMA.store(v.to_bits(), Ordering::Relaxed);
 }
 
-pub fn lr() -> f32 {
-    f32::from_bits(LR.load(Ordering::Relaxed))
+pub fn get_lr() -> f64 {
+    f64::from_bits(LR.load(Ordering::Relaxed))
 }
-pub fn set_lr(v: f32) {
+pub fn set_lr(v: f64) {
     LR.store(v.to_bits(), Ordering::Relaxed);
 }
-
 fn hyper_ui(mut contexts: EguiContexts) -> Result {
     web_sys::console::log_1(&format!(" pado maplan").into());
     egui::Window::new("Hyperparameters").show(&contexts.ctx_mut()?.clone(), |ui| {
-        let mut g = gamma();
+        let mut g = get_gamma();
         if ui
             .add(egui::Slider::new(&mut g, 0.80..=0.99).text("gamma"))
             .changed()
@@ -100,7 +95,7 @@ fn hyper_ui(mut contexts: EguiContexts) -> Result {
             set_gamma(g);
         }
 
-        let mut lr = lr();
+        let mut lr = get_lr();
         if ui
             .add(
                 egui::Slider::new(&mut lr, 1e-6..=1e-2)
@@ -199,9 +194,7 @@ fn think(
         if score.is_changed() && !score.is_added() {
             if score.0 >= 5 {
                 #[cfg(target_arch = "wasm32")]
-                web_sys::console::log_1(
-                    &format!("{:?} {:?}, {:?}", score.0, bird.uid, agent.settings).into(),
-                );
+                web_sys::console::log_1(&format!("{:?} {:?} ", score.0, bird.uid,).into());
                 agent.state.score = score.0;
                 let model = agent.get_model();
                 //
@@ -271,7 +264,7 @@ fn not_setup<E: Message>(mut begin: MessageReader<E>) -> bool {
 
 //this function is end of the line for async works : it hands off major tensor tasks to wgpu worker before resuming them in another micro task loop
 pub fn run_forwards_and_optims(
-    mut am_ressource: NonSendMut<AMRessource>,
+    am_ressource: NonSendMut<AMRessource>,
     gamemode: Res<GamemodeRessource>,
     mut begin: MessageWriter<BeginGame>,
     mut end: MessageWriter<EndGame>,
@@ -340,12 +333,8 @@ pub fn run_forwards_and_optims(
         ReplacementState::Replacing => {
             match done_task.get() {
                 None => {
-                    done_task.set(Some(false));
-                    // (target handle, source handle)
-                    let mut copies: Vec<(Rc<RefCell<FlappyNet>>, Rc<RefCell<FlappyNet>>)> =
-                        Vec::new();
-
-                    let mut middle_sources: HashMap<u8, Rc<RefCell<FlappyNet>>> = HashMap::new();
+                    // worst-half agent key -> snapshot of the best-half agent it copies
+                    let mut middle_sources: HashMap<u8, Option<Vec<u8>>> = HashMap::new();
 
                     // rank worst -> best (stats are still intact: reset happens below)
                     let mut ranked: Vec<(u8, f32)> = am_ressource
@@ -356,54 +345,32 @@ pub fn run_forwards_and_optims(
                         .collect();
                     ranked
                         .sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
-                    // 1/3 leading (kept), 1/3 middle (kept), 1/3 replaced:
-                    //   worst half of it -> removed (fresh agents next run)
-                    //   best half of it  -> clones of the top third
+                    // best half (kept), worst half -> clones of the best half
                     let n = ranked.len();
-                    let third = (n / 3).max(1);
-                    let top_start = n - third;
-                    let bottom_end = third.min(n);
-                    let remove_n = (bottom_end + 1) / 2; // worst half of the bottom third
+                    let half = n / 2;
+                    let top_start = n - half;
 
                     let keys: Vec<u8> = ranked.iter().map(|(k, _)| *k).collect();
                     let top: Vec<u8> = keys[top_start..].iter().rev().copied().collect(); // best-first
-                    let cloned: Vec<u8> = keys[remove_n..bottom_end].to_vec();
-                    let bottom: HashSet<u8> = keys[..remove_n].iter().copied().collect();
+                    let cloned: Vec<u8> = keys[..half].to_vec(); // worst half
 
-                    // better half of bottom third <- clones of top third (round-robin)
+                    // worst half <- clones of best half (round-robin)
                     for (i, k) in cloned.iter().enumerate() {
                         let src_key = top[i % top.len()];
                         let src = am_ressource.agent_manager.inner[&src_key]
-                            .borrow()
-                            .get_model();
+                            .borrow_mut()
+                            .record_prime();
 
                         middle_sources.insert(*k, src);
                     }
 
-                    let mut to_remove: Vec<u8> = Vec::new();
+                    // worst half gets Some(bytes); the best half gets None
                     for (key, agent) in am_ressource.agent_manager.inner.iter() {
-                        if bottom.contains(key) {
-                            // removed, new agents are created in the next run
-                            to_remove.push(*key);
-                            continue;
-                        }
-                        agent.borrow_mut().new_model_reset_stats();
-
-                        if let Some(src) = middle_sources.get(key) {
-                            copies.push((agent.borrow().get_model(), src.clone()));
-                        }
-                    }
-                    for key in to_remove {
-                        am_ressource.agent_manager.inner.remove(&key);
+                        let src = middle_sources.remove(key).flatten();
+                        agent.borrow_mut().replace_prime(src);
                     }
 
-                    spawn_local(async move {
-                        for (target, source) in copies.iter() {
-                            let model = source.borrow().clone(); // guard dropped at end of statement
-                            *target.borrow_mut() = model;
-                        }
-                        done_task.set(Some(true));
-                    });
+                    done_task.set(Some(true));
                 }
                 Some(false) => {}
                 Some(true) => {
@@ -413,7 +380,6 @@ pub fn run_forwards_and_optims(
                 }
             }
         }
-
         ReplacementState::Ready => {
             end.write(EndGame);
             begin.write(BeginGame);
