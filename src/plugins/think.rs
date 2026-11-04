@@ -192,17 +192,25 @@ fn think(
         }
 
         if score.is_changed() && !score.is_added() {
-            if score.0 >= 5 {
-                #[cfg(target_arch = "wasm32")]
-                web_sys::console::log_1(&format!("{:?} {:?} ", score.0, bird.uid,).into());
-                agent.state.score = score.0;
-                let model = agent.get_model();
-                //
-                let tensor_bytes = model.borrow().clone().into_record().into_bytes();
+            if score.0 % 3 == 0 {
+                if agent.prime_score > agent.state.score {
+                    agent.prime_score = agent.state.score;
+                    //new prime , back it up !
+                    agent.prime_backed = true;
+                }
 
-                let bytes = tensor_bytes.unwrap().to_vec();
-                #[cfg(target_arch = "wasm32")]
-                download_bytes(&bytes, &format!("flappy_score{}_{}.bin", score.0, bird.uid));
+                if score.0 % 5 == 0 {
+                    #[cfg(target_arch = "wasm32")]
+                    web_sys::console::log_1(&format!("{:?} {:?} ", score.0, bird.uid,).into());
+                    agent.state.score = score.0;
+                    let model = agent.get_model();
+                    //
+                    let tensor_bytes = model.borrow().clone().into_record().into_bytes();
+
+                    let bytes = tensor_bytes.unwrap().to_vec();
+                    #[cfg(target_arch = "wasm32")]
+                    download_bytes(&bytes, &format!("flappy_score{}_{}.bin", score.0, bird.uid));
+                }
             }
 
             reward += RewardPrizes::default().pipe_cleared;
@@ -357,6 +365,7 @@ pub fn run_forwards_and_optims(
                     // worst half <- clones of best half (round-robin)
                     for (i, k) in cloned.iter().enumerate() {
                         let src_key = top[i % top.len()];
+
                         let src = am_ressource.agent_manager.inner[&src_key]
                             .borrow_mut()
                             .record_prime();

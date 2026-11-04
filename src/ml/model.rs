@@ -72,6 +72,8 @@ pub struct FlappyGradientAgent {
     pub(crate) state: AgentState,
     pub(crate) stats: AgentStats,
     pub(crate) prime: Option<Vec<u8>>,
+    pub(crate) prime_score: u32,
+    pub(crate) prime_backed: bool,
 
     // background-inference bookkeeping
     pending_action: Rc<RefCell<Option<Action>>>,
@@ -94,20 +96,25 @@ impl FlappyGradientAgent {
             pending_action: Rc::new(RefCell::new(None)),
             action_inflight: Rc::new(RefCell::new(false)),
             last_action: Action::DoNothing,
+            prime_score: 0,
+            prime_backed: true,
         }
     }
     // "prime functions allow to only record valuable models and create new ones"
     pub fn record_prime(&mut self) -> Option<Vec<u8>> {
-        let record = self
-            .flappy
-            .borrow()
-            .clone()
-            .into_record()
-            .into_bytes()
-            .expect("serialization failed ")
-            .to_vec();
+        if self.prime_backed == false {
+            let record = self
+                .flappy
+                .borrow()
+                .clone()
+                .into_record()
+                .into_bytes()
+                .expect("serialization failed ")
+                .to_vec();
 
-        self.prime = Some(record);
+            self.prime = Some(record);
+            self.prime_backed = true;
+        }
 
         self.prime.clone()
     }
@@ -123,7 +130,7 @@ impl FlappyGradientAgent {
             .borrow()
             .clone()
             .load_record(ModuleRecord::from_bytes(Bytes::from_bytes_vec(bytes)).unwrap());
-
+        self.prime_backed = false;
         *self.flappy.borrow_mut() = model;
     }
 
