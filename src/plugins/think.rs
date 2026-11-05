@@ -344,6 +344,7 @@ pub fn run_forwards_and_optims(
                     if a.borrow().state.episode.is_empty() {
                         continue;
                     }
+                    a.borrow_mut().record_prime();
                     let _loss = a.borrow_mut().update_policy().await;
 
                     a.borrow_mut().agent_clear_episode();
@@ -392,8 +393,9 @@ pub fn run_forwards_and_optims(
                         let src_key = top[i % top.len()];
 
                         let src = am_ressource.agent_manager.inner[&src_key]
-                            .borrow_mut()
-                            .record_prime();
+                            .borrow()
+                            .prime
+                            .clone();
 
                         middle_sources.insert(*k, src);
                     }
