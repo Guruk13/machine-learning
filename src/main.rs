@@ -348,7 +348,9 @@ fn enforce_bird_direction(mut birds: Query<(&mut Transform, &Velocity), With<Bir
 
 fn on_bird_jump(event: On<BirdJump>, mut velocities: Query<&mut Velocity, With<Bird>>) {
     if let Ok(mut velocity) = velocities.get_mut(event.0) {
-        velocity.0 = 460.;
+        //        velocity.0 = 460.;
+
+        velocity.0 = 200.;
     }
 }
 

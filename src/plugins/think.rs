@@ -7,6 +7,7 @@ use crate::player::{
 };
 use crate::{BeginGame, EndGame, GameMode, GamemodeRessource};
 use crate::{ReplacementState, ResetGamemode};
+use primes::{PrimeSet, Sieve};
 
 use bevy::camera::primitives::Aabb;
 use bevy::prelude::*;
@@ -66,10 +67,11 @@ impl Plugin for BrainPlugin {
             .add_systems(EguiPrimaryContextPass, hyper_ui);
     }
 }
-use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
 
-pub static GAMMA: AtomicU32 = AtomicU32::new(0.90f32.to_bits());
-pub static LR: AtomicU64 = AtomicU64::new(1e-3f64.to_bits());
+pub static GAMMA: AtomicU32 = AtomicU32::new(0.85f32.to_bits());
+/// Index into the 1-5 per decade table (0 -> 1e-6 ... 6 -> 1e-3)
+pub static LR_IDX: AtomicUsize = AtomicUsize::new(6); // 1e-3, your old default
 
 pub fn get_gamma() -> f32 {
     f32::from_bits(GAMMA.load(Ordering::Relaxed))
@@ -78,36 +80,57 @@ pub fn set_gamma(v: f32) {
     GAMMA.store(v.to_bits(), Ordering::Relaxed);
 }
 
+const LR_MAX_IDX: usize = 6;
+
+pub fn lr_from_idx(idx: usize) -> f64 {
+    let mantissa = if idx % 2 == 0 { 1 } else { 5 };
+    let exp = 6 - idx / 2;
+    format!("{mantissa}e-{exp}").parse().unwrap()
+}
+
+pub fn get_lr_idx() -> usize {
+    LR_IDX.load(Ordering::Relaxed)
+}
+pub fn set_lr_idx(i: usize) {
+    LR_IDX.store(i.min(LR_MAX_IDX), Ordering::Relaxed);
+}
 pub fn get_lr() -> f64 {
-    f64::from_bits(LR.load(Ordering::Relaxed))
+    lr_from_idx(get_lr_idx())
 }
-pub fn set_lr(v: f64) {
-    LR.store(v.to_bits(), Ordering::Relaxed);
-}
+
 fn hyper_ui(mut contexts: EguiContexts) -> Result {
     egui::Window::new("Hyperparameters").show(&contexts.ctx_mut()?.clone(), |ui| {
         let mut g = get_gamma();
         if ui
-            .add(egui::Slider::new(&mut g, 0.80..=0.99).text("Gamma: whisper -> shout the grades "))
-            .changed()
-        {
-            set_gama(g);
-        }
-
-        let mut lr = get_lr();
-        if ui
             .add(
-                egui::Slider::new(&mut lr, 1e-6..=1e-2)
-                    .logarithmic(true)
-                    .text("Learning Rate: short -> long term goals "),
+                egui::Slider::new(&mut g, 0.85..=0.99)
+                    .step_by(0.01)
+                    .fixed_decimals(2)
+                    .update_while_editing(false)
+                    .text("Gamma: short -> long term goals  "),
             )
             .changed()
         {
-            set_lr(lr);
+            set_gamma(g);
+        }
+
+        let mut lr_idx = get_lr_idx();
+        if ui
+            .add(
+                egui::Slider::new(&mut lr_idx, 0..=LR_MAX_IDX)
+                    .custom_formatter(|n, _| format!("{:e}", lr_from_idx(n as usize)))
+                    .update_while_editing(false)
+                    .text("Learning Rate: whisper -> shout the grades "),
+            )
+            .changed()
+        {
+            set_lr_idx(lr_idx);
         }
     });
     Ok(())
 }
+// keep lr_idx in your state, e.g. let mut lr_idx: usize = 4;
+
 //Think Bird.  what will you have after 500 years ?
 fn think(
     mut commands: Commands,
@@ -189,16 +212,19 @@ fn think(
         if *dead {
             reward += RewardPrizes::default().dying
         }
-
+        let mut sieve = Sieve::new();
+        let mut prime_numbers = sieve.iter().take(6);
         if score.is_changed() && !score.is_added() {
-            if score.0 % 3 == 0 {
-                if agent.prime_score > agent.state.score {
+            if prime_numbers.any(|x| x == u64::from(score.0))
+                || u64::from(score.0) > prime_numbers.last().unwrap()
+            {
+                if agent.prime_score < agent.state.score {
                     agent.prime_score = agent.state.score;
                     //new prime , back it up !
-                    agent.prime_backed = true;
+                    agent.prime_backed = false;
                 }
 
-                if score.0 % 5 == 0 {
+                if score.0 % 5 == 0 && score.0 % 3 == 0 {
                     #[cfg(target_arch = "wasm32")]
                     web_sys::console::log_1(&format!("{:?} {:?} ", score.0, bird.uid,).into());
                     agent.state.score = score.0;
