@@ -213,11 +213,11 @@ fn think(
             reward += RewardPrizes::default().dying
         }
         let mut sieve = Sieve::new();
-        let mut prime_numbers = sieve.iter().take(6);
+        let primes: Vec<u64> = sieve.iter().take(10).collect();
+        let s = u64::from(score.0);
+
         if score.is_changed() && !score.is_added() {
-            if prime_numbers.any(|x| x == u64::from(score.0))
-                || u64::from(score.0) > prime_numbers.last().unwrap()
-            {
+            if primes.contains(&s) || s > *primes.last().unwrap() {
                 if agent.prime_score < agent.state.score {
                     agent.prime_score = agent.state.score;
                     //new prime , back it up !
