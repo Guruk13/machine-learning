@@ -3,8 +3,7 @@ use super::OPTIMIZER_EPSILON;
 use crate::ml::multiagent::get_global_device;
 use crate::think::{get_gamma, get_lr};
 use burn::optim::ModuleOptimizer;
-use burn::store::ModuleRecord;
-use burn::tensor::{Bytes, Device};
+use burn::tensor::Device;
 use burn::{
     module::Module,
     nn::{Linear, LinearConfig, Relu},
@@ -66,12 +65,12 @@ impl FlappyNet {
 // two gradient steps) from racing each other.
 #[wasm_bindgen]
 pub struct FlappyGradientAgent {
-    flappy: Rc<RefCell<FlappyNet>>,
+    pub(crate) flappy: Rc<RefCell<FlappyNet>>,
     pub(crate) optimizer: ModuleOptimizer,
     pub(crate) device: Device,
     pub(crate) state: AgentState,
     pub(crate) stats: AgentStats,
-    pub(crate) prime: Option<Vec<u8>>,
+    pub(crate) prime: Option<FlappyNet>,
     pub(crate) prime_score: u32,
     pub(crate) prime_backed: bool,
 
@@ -79,6 +78,22 @@ pub struct FlappyGradientAgent {
     pending_action: Rc<RefCell<Option<Action>>>,
     pub(crate) action_inflight: Rc<RefCell<bool>>,
     last_action: Action,
+}
+
+impl FlappyGradientAgent {
+    pub fn record_prime(&mut self) -> Option<FlappyNet> {
+        if !self.prime_backed {
+            self.prime = Some(self.flappy.borrow().clone().no_grad());
+            self.prime_backed = true;
+        }
+        self.prime.clone()
+    }
+
+    pub fn replace_prime(&mut self, prime: Option<FlappyNet>) {
+        self.reset_stats();
+        self.prime_backed = false;
+        *self.flappy.borrow_mut() = prime.unwrap_or_else(|| FlappyNet::new());
+    }
 }
 
 #[wasm_bindgen]
@@ -101,38 +116,6 @@ impl FlappyGradientAgent {
         }
     }
     // "prime functions allow to only record valuable models and create new ones"
-    pub fn record_prime(&mut self) -> Option<Vec<u8>> {
-        if self.prime_backed == false {
-            let record = self
-                .flappy
-                .borrow()
-                .clone()
-                .into_record()
-                .into_bytes()
-                .expect("serialization failed ")
-                .to_vec();
-
-            self.prime = Some(record);
-            self.prime_backed = true;
-        }
-
-        self.prime.clone()
-    }
-    pub fn replace_prime(&mut self, prime: Option<Vec<u8>>) {
-        self.reset_stats();
-        let Some(bytes) = prime else {
-            *self.flappy.borrow_mut() = FlappyNet::new();
-            return;
-        };
-
-        let model = self
-            .flappy
-            .borrow()
-            .clone()
-            .load_record(ModuleRecord::from_bytes(Bytes::from_bytes_vec(bytes)).unwrap());
-        self.prime_backed = false;
-        *self.flappy.borrow_mut() = model;
-    }
 
     pub fn reset_stats(&mut self) {
         self.state = AgentState::new();

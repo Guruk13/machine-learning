@@ -1,5 +1,6 @@
 use super::pipes::*;
 use crate::ml::agent_utils::{Action, GameStateFeatures, RewardPrizes};
+use crate::ml::model::FlappyNet;
 use crate::ml::multiagent::AMRessource;
 use crate::player::{
     Bird, BirdJump, Dead, GameSets, IndividualScore, PipeBottom, PipeDeath, PipeTop, Player,
@@ -230,6 +231,7 @@ fn think(
                     agent.state.score = score.0;
                     let model = agent.get_model();
                     //
+
                     let tensor_bytes = model.borrow().clone().into_record().into_bytes();
 
                     let bytes = tensor_bytes.unwrap().to_vec();
@@ -368,7 +370,7 @@ pub fn run_forwards_and_optims(
             match done_task.get() {
                 None => {
                     // worst-half agent key -> snapshot of the best-half agent it copies
-                    let mut middle_sources: HashMap<u8, Option<Vec<u8>>> = HashMap::new();
+                    let mut middle_sources: HashMap<u8, Option<FlappyNet>> = HashMap::new();
 
                     // rank worst -> best (stats are still intact: reset happens below)
                     let mut ranked: Vec<(u8, f32)> = am_ressource
@@ -400,7 +402,7 @@ pub fn run_forwards_and_optims(
                         middle_sources.insert(*k, src);
                     }
 
-                    // worst half gets Some(bytes); the best half gets None
+                    // worst half gets Some(flappynet); the best half gets None
                     for (key, agent) in am_ressource.agent_manager.inner.iter() {
                         let src = middle_sources.remove(key).flatten();
                         agent.borrow_mut().replace_prime(src);
