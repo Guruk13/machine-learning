@@ -83,16 +83,30 @@ pub struct FlappyGradientAgent {
 impl FlappyGradientAgent {
     pub fn record_prime(&mut self) -> Option<FlappyNet> {
         if !self.prime_backed {
-            self.prime = Some(self.flappy.borrow().clone().no_grad());
+            self.prime = Some(self.flappy.borrow().clone());
             self.prime_backed = true;
         }
         self.prime.clone()
     }
 
-    pub fn replace_prime(&mut self, prime: Option<FlappyNet>) {
+    // "in case there's a challenging model , check its score , if we're in this situation : model has degraded , rollback . if model has no prime, innovate."
+    pub fn replace_prime(&mut self, prime: Option<FlappyNet>, chal_prime_score: u32) {
         self.reset_stats();
-        self.prime_backed = false;
-        *self.flappy.borrow_mut() = prime.unwrap_or_else(|| FlappyNet::new());
+        self.prime_backed = true;
+
+        if self.prime_score <= chal_prime_score {
+            if let Some(p) = prime {
+                *self.flappy.borrow_mut() = p;
+
+                self.prime_score = chal_prime_score;
+                return;
+            }
+        }
+        if let Some(p) = self.prime.clone() {
+            *self.flappy.borrow_mut() = p;
+            return;
+        }
+        *self.flappy.borrow_mut() = FlappyNet::new();
     }
 }
 

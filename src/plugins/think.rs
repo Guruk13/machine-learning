@@ -85,7 +85,7 @@ const LR_MAX_IDX: usize = 6;
 
 pub fn lr_from_idx(idx: usize) -> f64 {
     let mantissa = if idx % 2 == 0 { 1 } else { 5 };
-    let exp = 6 - idx / 2;
+    let exp = 5 - idx / 2;
     format!("{mantissa}e-{exp}").parse().unwrap()
 }
 
@@ -121,7 +121,7 @@ fn hyper_ui(mut contexts: EguiContexts) -> Result {
                 egui::Slider::new(&mut lr_idx, 0..=LR_MAX_IDX)
                     .custom_formatter(|n, _| format!("{:e}", lr_from_idx(n as usize)))
                     .update_while_editing(false)
-                    .text("Learning Rate: whisper -> shout the grades "),
+                    .text("Learning Rate: whisper <- shout the grades "),
             )
             .changed()
         {
@@ -208,7 +208,10 @@ fn think(
 
         let mut reward: f32 = 0.0;
         if *pipe_death {
-            reward += RewardPrizes::default().pipe_death;
+            reward += RewardPrizes::default()
+                .pipe_death
+                .powi(score.0 as i32)
+                .min(-5.);
         }
         if *dead {
             reward += RewardPrizes::default().dying
@@ -225,19 +228,19 @@ fn think(
                     agent.prime_backed = false;
                 }
 
-                if score.0 % 5 == 0 && score.0 % 3 == 0 {
-                    #[cfg(target_arch = "wasm32")]
-                    web_sys::console::log_1(&format!("{:?} {:?} ", score.0, bird.uid,).into());
-                    agent.state.score = score.0;
-                    let model = agent.get_model();
-                    //
+                //if score.0 % 5 == 0 && score.0 % 3 == 0 {
+                #[cfg(target_arch = "wasm32")]
+                web_sys::console::log_1(&format!("{:?} {:?} ", score.0, bird.uid,).into());
+                agent.state.score = score.0;
+                let model = agent.get_model();
+                //
 
-                    let tensor_bytes = model.borrow().clone().into_record().into_bytes();
+                let tensor_bytes = model.borrow().clone().into_record().into_bytes();
 
-                    let bytes = tensor_bytes.unwrap().to_vec();
-                    #[cfg(target_arch = "wasm32")]
-                    download_bytes(&bytes, &format!("flappy_score{}_{}.bin", score.0, bird.uid));
-                }
+                let bytes = tensor_bytes.unwrap().to_vec();
+                #[cfg(target_arch = "wasm32")]
+                download_bytes(&bytes, &format!("flappy_score{}_{}.bin", score.0, bird.uid));
+                //}
             }
 
             reward += RewardPrizes::default().pipe_cleared;
@@ -370,7 +373,7 @@ pub fn run_forwards_and_optims(
             match done_task.get() {
                 None => {
                     // worst-half agent key -> snapshot of the best-half agent it copies
-                    let mut middle_sources: HashMap<u8, Option<FlappyNet>> = HashMap::new();
+                    let mut middle_sources: HashMap<u8, (Option<FlappyNet>, u32)> = HashMap::new();
 
                     // rank worst -> best (stats are still intact: reset happens below)
                     let mut ranked: Vec<(u8, f32)> = am_ressource
@@ -398,14 +401,17 @@ pub fn run_forwards_and_optims(
                             .borrow()
                             .prime
                             .clone();
+                        let chal = am_ressource.agent_manager.inner[&src_key]
+                            .borrow()
+                            .prime_score;
 
-                        middle_sources.insert(*k, src);
+                        middle_sources.insert(*k, (src, chal));
                     }
 
                     // worst half gets Some(flappynet); the best half gets None
                     for (key, agent) in am_ressource.agent_manager.inner.iter() {
-                        let src = middle_sources.remove(key).flatten();
-                        agent.borrow_mut().replace_prime(src);
+                        let (net, score) = middle_sources.remove(key).unwrap_or((None, 0));
+                        agent.borrow_mut().replace_prime(net, score);
                     }
 
                     done_task.set(Some(true));

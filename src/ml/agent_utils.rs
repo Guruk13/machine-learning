@@ -108,10 +108,10 @@ impl Default for RewardPrizes {
     fn default() -> Self {
         Self {
             dying: -3.,
-            pipe_death: -0.3,
+            pipe_death: -1.1,
 
-            pipe_cleared: 3.,
-            alive: 0.1,
+            pipe_cleared: 1.,
+            alive: 0.05,
             jump_cost: 0.0,
         }
     }
