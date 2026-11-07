@@ -228,19 +228,17 @@ fn think(
                     agent.prime_backed = false;
                 }
 
-                //if score.0 % 5 == 0 && score.0 % 3 == 0 {
-                #[cfg(target_arch = "wasm32")]
-                web_sys::console::log_1(&format!("{:?} {:?} ", score.0, bird.uid,).into());
-                agent.state.score = score.0;
-                let model = agent.get_model();
-                //
+                if score.0 % 5 == 0 && score.0 % 3 == 0 {
+                    let bytes = match agent.flappy.borrow_mut().clone().into_record().into_bytes() {
+                        Ok(b) => b.to_vec(),
+                        Err(e) => {
+                            web_sys::console::error_1(&format!("serialize failed: {:?}", e).into());
+                            return;
+                        }
+                    };
 
-                let tensor_bytes = model.borrow().clone().into_record().into_bytes();
-
-                let bytes = tensor_bytes.unwrap().to_vec();
-                #[cfg(target_arch = "wasm32")]
-                download_bytes(&bytes, &format!("flappy_score{}_{}.bin", score.0, bird.uid));
-                //}
+                    download_bytes(&bytes, &format!("flappy_Mk{}-{}.bin", bird.uid, score.0));
+                }
             }
 
             reward += RewardPrizes::default().pipe_cleared;
