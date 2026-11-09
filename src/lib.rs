@@ -25,7 +25,7 @@ pub enum GameMode {
 impl GameMode {
     pub fn train() -> Self {
         GameMode::Train {
-            birdnumber: 8,
+            birdnumber: 16,
             opacity: 70.0,
         }
     }

@@ -79,7 +79,35 @@ pub struct FlappyGradientAgent {
     pub(crate) action_inflight: Rc<RefCell<bool>>,
     last_action: Action,
 }
+use burn::module::{ModuleMapper, ModuleVisitor, Param};
+use burn::tensor::TensorData;
 
+/// Flattens every float param to Tensor<1>, so all readbacks share one type.
+struct Collector {
+    flat: Vec<Tensor<1>>,
+}
+
+impl ModuleVisitor for Collector {
+    fn visit_float<const D: usize>(&mut self, param: &Param<Tensor<D>>) {
+        self.flat.push(param.val().flatten::<1>(0, D - 1));
+    }
+}
+use crate::ml::multiagent::download_bytes;
+/// Restores the saved data, in the same visit order, reusing each param's shape.
+struct Loader {
+    data: std::vec::IntoIter<Vec<f32>>,
+}
+
+impl ModuleMapper for Loader {
+    fn map_float<const D: usize>(&mut self, param: Param<Tensor<D>>) -> Param<Tensor<D>> {
+        let data = self.data.next().expect("saved weights don't match model");
+        param.map(|t| {
+            let shape = t.shape();
+            let len = data.len();
+            Tensor::<1>::from_data(TensorData::new(data, [len]), &t.device()).reshape(shape)
+        })
+    }
+}
 impl FlappyGradientAgent {
     pub fn record_prime(&mut self) -> Option<FlappyNet> {
         if !self.prime_backed {
@@ -107,6 +135,50 @@ impl FlappyGradientAgent {
             return;
         }
         *self.flappy.borrow_mut() = FlappyNet::new();
+    }
+    pub fn save_weights(&self, filename: String) {
+        let model = self.flappy.borrow().clone();
+
+        wasm_bindgen_futures::spawn_local(async move {
+            let mut collector = Collector { flat: Vec::new() };
+            model.visit(&mut collector);
+
+            let mut all: Vec<Vec<f32>> = Vec::with_capacity(collector.flat.len());
+            for t in collector.flat {
+                let data = match t.into_data_async().await {
+                    Ok(d) => d,
+                    Err(e) => {
+                        web_sys::console::error_1(&format!("readback failed: {e:?}").into());
+                        return;
+                    }
+                };
+                match data.try_into_vec_as::<f32>() {
+                    Ok(v) => all.push(v),
+                    Err(e) => {
+                        web_sys::console::error_1(&format!("convert failed: {e:?}").into());
+                        return;
+                    }
+                }
+            }
+
+            match wincode::serialize(&all) {
+                Ok(bytes) => download_bytes(&bytes, &filename),
+                Err(e) => {
+                    web_sys::console::error_1(&format!("serialize failed: {e:?}").into());
+                }
+            }
+        });
+    }
+    pub fn load_weights(&self, bytes: &[u8]) -> Result<(), JsValue> {
+        let all: Vec<Vec<f32>> =
+            wincode::deserialize(bytes).map_err(|e| JsValue::from_str(&e.to_string()))?;
+
+        let model = self.flappy.borrow().clone();
+        let loaded = model.map(&mut Loader {
+            data: all.into_iter(),
+        });
+        *self.flappy.borrow_mut() = loaded;
+        Ok(())
     }
 }
 

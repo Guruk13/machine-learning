@@ -12,11 +12,9 @@ use primes::{PrimeSet, Sieve};
 
 use bevy::camera::primitives::Aabb;
 use bevy::prelude::*;
-use burn::module::Module;
 use std::collections::HashMap;
 use wasm_bindgen_futures::spawn_local;
 pub struct BrainPlugin;
-use crate::ml::multiagent::download_bytes;
 use bevy_egui::{egui, EguiContexts, EguiPlugin, EguiPrimaryContextPass};
 use std::cell::Cell;
 use std::cell::RefCell;
@@ -227,17 +225,8 @@ fn think(
                     //new prime , back it up !
                     agent.prime_backed = false;
                 }
-
                 if score.0 % 5 == 0 && score.0 % 3 == 0 {
-                    let bytes = match agent.flappy.borrow_mut().clone().into_record().into_bytes() {
-                        Ok(b) => b.to_vec(),
-                        Err(e) => {
-                            web_sys::console::error_1(&format!("serialize failed: {:?}", e).into());
-                            return;
-                        }
-                    };
-
-                    download_bytes(&bytes, &format!("flappy_Mk{}-{}.bin", bird.uid, score.0));
+                    agent.save_weights(format!("flappy_Mk{}-{}.bin", bird.uid, agent.state.score));
                 }
             }
 

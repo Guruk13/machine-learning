@@ -350,7 +350,7 @@ fn on_bird_jump(event: On<BirdJump>, mut velocities: Query<&mut Velocity, With<B
     if let Ok(mut velocity) = velocities.get_mut(event.0) {
         //        velocity.0 = 460.;
 
-        velocity.0 = 200.;
+        velocity.0 = 460.;
     }
 }
 
@@ -398,7 +398,7 @@ fn begin_listener<E: Message>(
 //debug helper
 //maybe accelerate when training ?
 fn set_time_scale(mut time: ResMut<Time<Virtual>>) {
-    time.set_relative_speed(1.);
+    time.set_relative_speed(0.8);
 }
 fn toggle_pause(mut time: ResMut<Time<Virtual>>, keys: Res<ButtonInput<KeyCode>>) {
     if keys.just_pressed(KeyCode::Space) {
