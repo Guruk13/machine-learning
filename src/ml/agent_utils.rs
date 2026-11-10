@@ -110,7 +110,7 @@ impl Default for RewardPrizes {
             dying: -3.,
             pipe_death: -1.1,
 
-            pipe_cleared: 1.,
+            pipe_cleared: 2.,
             alive: 0.05,
             jump_cost: 0.0,
         }

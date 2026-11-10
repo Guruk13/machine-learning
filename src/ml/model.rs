@@ -39,7 +39,7 @@ impl FlappyNet {
     pub fn forward(&self, x: Tensor<2>, _training: bool) -> Tensor<2> {
         let x = self.linear1.forward(x);
         let x = self.activation.forward(x);
-        sigmoid(self.linear2.forward(x))
+        sigmoid(self.linear2.forward(x).sub_scalar(3.0)) // shifts the starting p(jump) from ~0.5 to ~0.05
     }
 }
 
@@ -389,6 +389,17 @@ impl FlappyGradientAgent {
     }
 }
 
+use burn::optim::{momentum::MomentumConfig, SgdConfig};
+
+use burn::grad_clipping::GradientClippingConfig;
+
 pub fn get_optimizer() -> ModuleOptimizer {
-    AdamConfig::new().with_epsilon(OPTIMIZER_EPSILON).init()
+    SgdConfig::new()
+        .with_momentum(Some(MomentumConfig {
+            momentum: 0.9,
+            dampening: 0.0,
+            nesterov: false,
+        }))
+        .with_gradient_clipping(Some(GradientClippingConfig::Norm(1.0)))
+        .init()
 }

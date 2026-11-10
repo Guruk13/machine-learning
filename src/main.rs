@@ -1,4 +1,12 @@
 #![allow(warnings)]
+use crate::ml::multiagent::set_global_device;
+use crate::ml::multiagent::AMRessource;
+use crate::ml::multiagent::AgentManager;
+use crate::player::Pipe;
+use crate::player::*;
+use crate::{BeginGame, EndGame, ResetGamemode, SwitchGamemode};
+use bevy::color::Color;
+use bevy::prelude::*;
 use bevy::{
     asset::AssetMetaCheck,
     camera::ScalingMode,
@@ -10,19 +18,11 @@ use bevy::{
     sprite_render::{Material2d, Material2dPlugin},
 };
 use bevy::{color::palettes::tailwind::RED_400, image::ImageLoaderSettings};
-use flappy_bird::{ml::agent_utils::GameStateFeatures, *};
-
-use crate::ml::multiagent::set_global_device;
-use crate::ml::multiagent::AMRessource;
-use crate::ml::multiagent::AgentManager;
-use crate::player::Pipe;
-use crate::player::*;
-use crate::{BeginGame, EndGame, ResetGamemode, SwitchGamemode};
-use bevy::color::Color;
 use bevy_egui::{EguiGlobalSettings, PrimaryEguiContext};
 use burn::backend::wgpu::WgpuDevice;
 use burn::tensor::Device;
 use flappy_bird::BrainPlugin;
+use flappy_bird::{ml::agent_utils::GameStateFeatures, *};
 use std::rc::Rc;
 use std::time::Duration;
 use std::{cell::RefCell, collections::HashSet};

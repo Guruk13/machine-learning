@@ -21,6 +21,7 @@ bevy_egui = "0.43.1"
 egui = "0.37.0"
 primes = "0.4.0"
 wincode = "0.6.3"
+bevy-inspector-egui = "0.38.0"
 
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]

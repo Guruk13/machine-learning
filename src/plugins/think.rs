@@ -102,7 +102,7 @@ fn hyper_ui(mut contexts: EguiContexts) -> Result {
         let mut g = get_gamma();
         if ui
             .add(
-                egui::Slider::new(&mut g, 0.85..=0.99)
+                egui::Slider::new(&mut g, 0.90..=0.99)
                     .step_by(0.01)
                     .fixed_decimals(2)
                     .update_while_editing(false)
@@ -215,7 +215,8 @@ fn think(
             reward += RewardPrizes::default().dying
         }
         let mut sieve = Sieve::new();
-        let primes: Vec<u64> = sieve.iter().take(10).collect();
+        let mut primes: Vec<u64> = sieve.iter().take(10).collect();
+        primes.push(1);
         let s = u64::from(score.0);
 
         if score.is_changed() && !score.is_added() {
@@ -308,7 +309,8 @@ pub fn run_forwards_and_optims(
         // incremented after each successful batch of descent
         static EPOCH: Cell<u32> = const { Cell::new(0) };
     }
-    const CULL_EVERY: u32 = 5;
+    const CULL_EVERY: u32 = 4;
+    const TRAIN_EVERY: u32 = 1;
 
     let done = DONE.with(Rc::clone);
     let done_task = done.clone();
@@ -319,38 +321,30 @@ pub fn run_forwards_and_optims(
     match current_state {
         ReplacementState::Idle => {
             *replacement.borrow_mut() = ReplacementState::Descending;
-
-            //by now gameloop should be stable enough to not have to check agentmanager's state     panic!("must have at least two agents");
-
-            // every agent descends on its own episode
-            let agents: Vec<_> = am_ressource.agent_manager.inner.values().cloned().collect();
-            let replacement_task = replacement.clone();
-            //
             EPOCH.with(|e| e.set(e.get() + 1));
             let epoch = EPOCH.with(|e| e.get());
-            let cull_epoch = epoch > 0 && epoch.is_multiple_of(CULL_EVERY);
+            let train_epoch = epoch > 0 && epoch.is_multiple_of(TRAIN_EVERY);
+            let replacement_task = replacement.clone();
+            if !train_epoch {
+                *replacement_task.borrow_mut() = ReplacementState::Ready;
+                return;
+            }
+            let agents: Vec<_> = am_ressource.agent_manager.inner.values().cloned().collect();
 
             spawn_local(async move {
                 let _n = agents.len() as f32;
                 for a in agents.iter() {
-                    if a.borrow().state.episode.is_empty() {
-                        continue;
-                    }
                     a.borrow_mut().record_prime();
                     let _loss = a.borrow_mut().update_policy().await;
 
                     a.borrow_mut().agent_clear_episode();
-                    if !cull_epoch {
-                        a.borrow_mut().reset_score();
-                    }
                 }
-
-                if !cull_epoch {
-                    let replacement_task = replacement.clone();
-                    *replacement_task.borrow_mut() = ReplacementState::Ready;
-                } else {
+                let cull_epoch = epoch > 0 && epoch.is_multiple_of(CULL_EVERY);
+                if cull_epoch {
                     *replacement_task.borrow_mut() = ReplacementState::Replacing;
+                    return;
                 }
+                *replacement_task.borrow_mut() = ReplacementState::Ready;
             });
         }
 
@@ -399,6 +393,7 @@ pub fn run_forwards_and_optims(
                     for (key, agent) in am_ressource.agent_manager.inner.iter() {
                         let (net, score) = middle_sources.remove(key).unwrap_or((None, 0));
                         agent.borrow_mut().replace_prime(net, score);
+                        agent.borrow_mut().reset_score();
                     }
 
                     done_task.set(Some(true));
